@@ -120,6 +120,7 @@ function expand(doc){
                        :'歩行者用道路（時間帯指定）。指定時間内は原付を含む車両が進入できません。通学路が多く、朝の時間帯だけ規制されている道が多いです。';
       if(q.h) p.time=q.h;
       if(q.d) p.cond=q.d;
+      if(q.x) p.excl=q.x;
       p.src=SRC_REG; p.confidence='sign'; p.uk='ped'+q.t+'@'+f.geometry.coordinates[0];
     } else if(lay==='moped_banned'){
       p.title=titles[q.t]||'通行止め';
@@ -142,7 +143,7 @@ function expand(doc){
 
 var styleReady = new Promise(function(res){ map.once('load', res); });
 var ready = Promise.all([
-  fetch('data/genki.min.geojson?v=5').then(function(r){ return r.json(); }).then(expand),
+  fetch('data/genki.min.geojson?v=6').then(function(r){ return r.json(); }).then(expand),
   styleReady
 ]);
 ready.then(function(a){
@@ -737,6 +738,8 @@ function openSheet(p, lngLat){
   if(p.road) rows.push(['道路',p.road]);
   if(p.time) rows.push(['規制時間',p.time]);
   if(p.cond) rows.push(['条件',p.cond]);
+  if(p.excl) rows.push(['除外される車両',p.excl+
+    (/原付|二輪全般|車両全般/.test(p.excl)?'':'　※原付は含まれません（軽車両・自転車に原付は入らない）')]);
   if(p.koma!=null&&p.koma!=='') rows.push(['注記','約'+p.koma+'m先に小回り標識あり。現地の標識が優先']);
   if(p.src) rows.push(['出典',p.src]);
   $('#sMeta').innerHTML=rows.map(function(r){

@@ -32,8 +32,11 @@ button,input{font-family:inherit}
 
 #searchWrap{position:fixed;z-index:6;top:52px;left:12px;right:12px;max-width:560px}
 #searchForm{display:flex;gap:7px}
-#q{flex:1;min-width:0;padding:12px 14px;border-radius:12px;border:1px solid var(--line);
-  background:rgba(22,27,34,.96);color:var(--ink);font-size:14px;font-weight:600;
+/* iOS Safari は font-size が 16px 未満の入力欄にフォーカスすると画面全体を拡大する。
+   16px にすることでそれを防ぐ（viewport の maximum-scale で塞ぐのは拡大自体を
+   禁止してしまい、地図アプリとしては不便なのでやらない） */
+#q{flex:1;min-width:0;padding:11px 14px;border-radius:12px;border:1px solid var(--line);
+  background:rgba(22,27,34,.96);color:var(--ink);font-size:16px;font-weight:600;
   backdrop-filter:blur(8px)}
 #q::placeholder{color:var(--muted2);font-weight:500}
 #goBtn{flex:0 0 auto;padding:0 16px;border-radius:12px;border:0;background:var(--amber);

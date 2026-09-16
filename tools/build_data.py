@@ -253,12 +253,30 @@ for e in osm:
         'kind':kind,'src':'© OpenStreetMap contributors (ODbL)','confidence':'osm'}})
     nosm+=1
 print('osm feats',nosm)
-# --- 歩行者用道路（原付は進入できない。通学路は時間帯指定が多い） ---
-ped=0
+# --- 歩行者用道路 -------------------------------------------------------------
+# 「自転車を除く」「軽車両を除く」という除外が大半だが、
+# 原付（原動機付自転車）は軽車両にも自転車にも含まれないので、除外されない＝進入できない。
+# 実際に除外に原付が入っているのは8市でわずか2件だった。
+def excl_text(row):
+    A=row['除外車両コード1_A']; D=row['除外車両コード1_D']
+    out=[]
+    if bit(D,3): out.append('自転車')
+    if bit(D,6) or bit(A,10): out.append('軽車両')   # 県警データは軽車両をA10に入れている
+    if bit(D,10) or bit(D,11): out.append('特定小型原付')
+    if bit(D,2): out.append('自動二輪')
+    if bit(D,4): out.append('原付')
+    if bit(D,1): out.append('二輪全般')
+    if bit(A,1): out.append('車両全般')
+    return '・'.join(out)
+
+ped=0; ped_skip=0
 for row,pts,city in raw['1']:
     nm=row['県別規制種別名称']
     cond=row['規制条件']
     if any(w in cond for w in ('危険物','積載車両')): continue
+    if hits_moped(row,'除外'):     # 原付が除外されているなら通れるので出さない
+        ped_skip+=1; continue
+    ex=excl_text(row)
     t=timetext(row)
     always=(t=='' or t=='終日')
     g={'type':'LineString','coordinates':rnd(simplify(pts,10))} if len(pts)>1 else {'type':'Point','coordinates':rnd(pts)[0]}
@@ -266,10 +284,11 @@ for row,pts,city in raw['1']:
       'properties':{'layer':'pedestrian_only','city':city,'title':nm,
         'detail':('歩行者用道路。原付を含む車両は進入できません。' if always
                   else '歩行者用道路（時間帯指定）。指定時間内は原付を含む車両が進入できません。'),
+        'excl':ex,
         'time':t,'cond':cond,'always':always,'src':row['_pref']+'/JARTIC交通規制情報',
         'uk':row['ユニークキー'],'confidence':'sign'}})
     ped+=1
-print('歩行者用道路:', ped)
+print('歩行者用道路:', ped, '／原付が除外されていて通れるもの:', ped_skip)
 
 gj={'type':'FeatureCollection','features':feats}
 json.dump(gj,open('genki.geojson','w'),ensure_ascii=False,separators=(',',':'))

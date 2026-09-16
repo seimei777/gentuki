@@ -54,6 +54,7 @@ for f in src['features']:
             tindex[t] = len(titles); titles.append(t)
         q['t'] = tindex[t]
     if lay in ('moped_banned','pedestrian_only'):
+        if p.get('excl'): q['x'] = p['excl']
         if p.get('time'): q['h'] = p['time']
         if p.get('cond'): q['d'] = p['cond']
         q['a'] = 1 if p.get('always') else 0
