@@ -42,7 +42,7 @@ var GLYPH = {
   exp:'<svg class="gl" viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="2.5" fill="none" stroke="'+C.express+'" stroke-width="2"/><path d="M5.5 12h4M11 12h2.5M15.5 12h3" stroke="'+C.express+'" stroke-width="2" stroke-linecap="round"/></svg>'
 };
 var LAYERS = [
-  {key:'two_stage_likely', glyph:'est', label:'二段階右折', ids:['ts_line','ts_dir','ts_pt']},
+  {key:'two_stage_likely', glyph:'est', label:'二段階右折', ids:['ts_line','ts_pt']},
   {key:'two_stage_required_sign', glyph:'req', label:'二段階右折 標識', ids:['ts_sign']},
   {key:'two_stage_forbidden', glyph:'no', label:'小回り（禁止）', ids:['ts_no']},
   {key:'moped_banned', glyph:'ban', label:'原付通行禁止', ids:['ban_line','ban_pt']},
@@ -610,24 +610,9 @@ function addLayers(){
   add({id:'ts_line',type:'line',source:'g',filter:['==',['get','layer'],'two_stage_likely_line'],
     minzoom:12,
     layout:{'line-cap':'round'},
-    paint:{'line-color':C.amber,'line-width':['interpolate',['linear'],['zoom'],11,2,17,7],
-           'line-opacity':.3}});
-  /* ただの線では「どっちから入る話か」が読み取れないので、
-     交差点へ向かう矢印を線の上に並べる。線の向きが進入方向そのもの。 */
-  try{
-    if(!map.hasImage('gk_arrow_two'))
-      map.addImage('gk_arrow_two', makeArrow(C.amber,'rgba(0,0,0,.55)'), {pixelRatio:2});
-  }catch(e){}
-  add({id:'ts_dir',type:'symbol',source:'g',filter:['==',['get','layer'],'two_stage_likely_line'],
-    minzoom:13.5,
-    /* 進入路は中央値57mと短く、25%は43m未満。間隔を空けると矢印が1個も
-       乗らないので詰める。大きさも、走りながら向きが読める程度にする。 */
-    layout:{'symbol-placement':'line','symbol-spacing':32,
-            'icon-image':'gk_arrow_two',
-            'icon-size':['interpolate',['linear'],['zoom'],13.5,0.9,17,1.7],
-            'icon-rotation-alignment':'map','icon-padding':0,
-            'icon-allow-overlap':false},
-    paint:{'icon-opacity':1}});
+    paint:{'line-color':C.amber,'line-width':['interpolate',['linear'],['zoom'],11,2,17,9],
+           'line-opacity':.35}});
+
   add({id:'ts_no',type:'circle',source:'g',filter:['==',['get','layer'],'two_stage_forbidden'],
     minzoom:12.5,
     paint:{'circle-radius':['interpolate',['linear'],['zoom'],12.5,3,14,5,17,9],
