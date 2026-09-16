@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;700;900&family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
-<link rel="stylesheet" href="style.css?v=202609170215">
+<link rel="stylesheet" href="style.css?v=202609170220">
 </head>
 <body>
 <div id="map"></div>
@@ -73,6 +73,15 @@
 </div>
 
 <div id="navBan" hidden></div>
+
+<div id="passCard" hidden>
+  <input type="hidden" id="passUk">
+  <div class="pc-q">いまの交差点、二段階右折でしたか？</div>
+  <div class="pc-row">
+    <button id="passYes">そうだった</button>
+    <button id="passNo">違った</button>
+  </div>
+</div>
 
 <button id="navRecenter" hidden>現在地に戻す</button>
 
@@ -131,6 +140,15 @@
   </div>
   <p class="s-detail" id="sDetail"></p>
   <dl class="s-meta" id="sMeta"></dl>
+  <div class="fb" id="fb" hidden>
+    <p class="fb-q">現地はどうでしたか？</p>
+    <div class="fb-row">
+      <button id="fbYes" aria-pressed="false">二段階右折だった</button>
+      <button id="fbNo" aria-pressed="false">違った</button>
+    </div>
+    <p class="fb-note" id="fbNote"></p>
+  </div>
+
   <div class="s-actions">
     <button id="sHere" class="ghost">ここへのルート</button>
     <button id="sClose" class="ghost">閉じる</button>
@@ -152,7 +170,8 @@
       <p>「原動機付自転車の右折方法（二段階）」の青い標識。この8市には3か所しかありません。</p></div></div>
     <div class="rulecard"><span class="gl" data-glyph="est"></span><div>
       <h4>車両通行帯が3以上＋信号あり なら二段階</h4>
-      <p>標識が無くても法令上こうなります。走りながら車線を数えるのは無理があるので、規制データから計算して先に出しています。</p></div></div>
+      <p><b>これが原則です。</b>標識は要りません。走りながら車線を数えるのは無理があるので、県警の規制データから計算して先に出しています。8市で632か所。<br>
+      なお「二段階右折せよ」の標識が3か所しか無いのは、データ不足ではなく、<b>二段階右折が既定で、標識は例外を作るためのもの</b>だからです。だから逆に「小回り＝二段階右折するな」の標識が508か所もあります。</p></div></div>
     <div class="rulecard"><span class="gl" data-glyph="no"></span><div>
       <h4>「小回り」標識があれば、二段階してはいけない</h4>
       <p>3車線以上でもこの標識が優先。8市で508か所。右折レーンから普通に曲がります。</p></div></div>
@@ -160,7 +179,7 @@
 
     <h3>この地図に入っているもの</h3>
     <table class="facts">
-      <tr><th>二段階右折（推定）</th><td class="n">632</td><td>片側3車線以上の信号交差点への進入路</td></tr>
+      <tr><th>二段階右折（法令）</th><td class="n">632</td><td>片側3車線以上＋信号。標識が無くても義務</td></tr>
       <tr><th>二段階右折 標識</th><td class="n">3</td><td>標識による指定</td></tr>
       <tr><th>小回り 標識</th><td class="n">508</td><td>二段階右折をしてはいけない交差点</td></tr>
       <tr><th>原付通行禁止</th><td class="n">108</td><td>六甲山系の土日祝規制・夜間規制など</td></tr>
@@ -178,6 +197,11 @@
       <li>規制データは2026年7月時点。規制は変わる</li>
     </ul>
     <div class="caution"><p><b>現地の標識・信号・警察官の指示が常に優先されます。</b>走行中のスマートフォン操作は道路交通法違反です。停めてから見るか、音声案内を使ってください。</p></div>
+
+    <h3>現地確認の記録</h3>
+    <p id="repCount">まだ記録はありません</p>
+    <p>点をタップして「二段階右折だった／違った」を押すと、この端末に記録されます。走行中は、その交差点を通り過ぎた直後に確認ボタンが出ます。</p>
+    <button class="closebtn" id="repShare" hidden>記録をコピーして送る</button>
 
     <h3>出典</h3>
     <p class="src">
@@ -197,6 +221,6 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js"></script>
-<script src="app.js?v=202609170215"></script>
+<script src="app.js?v=202609170220"></script>
 </body>
 </html>

@@ -233,6 +233,7 @@ body[data-theme="day"] .r-steps li.two .d{color:#b35309}
   background:var(--route);color:#fff;border-radius:0 0 18px 18px;
   box-shadow:0 6px 24px rgba(0,0,0,.35)}
 #navBand[data-two="1"]{background:var(--amber);color:#1a1004}
+#navBand[data-two="koma"]{background:var(--signblue);color:#fff}
 .nb-main{display:flex;align-items:center;gap:14px}
 .nb-icon{font-size:40px;line-height:1;width:48px;text-align:center;flex:0 0 auto}
 .nb-txt{min-width:0}
@@ -313,3 +314,24 @@ body[data-nav="1"] #compass{display:none}
 .nb-left{flex:1 0 100%;font-size:12px;font-weight:800;color:var(--amber);
   margin:0 0 8px;text-align:center}
 .nb-left:empty{display:none}
+
+/* ---- 現地確認のフィードバック ---- */
+.fb{margin:16px 0 0;padding:14px;border-radius:12px;background:var(--surface2);
+  border:1px solid var(--line)}
+.fb-q{margin:0 0 10px;font-size:12.5px;font-weight:800;color:var(--ink)}
+.fb-row{display:flex;gap:8px}
+.fb-row button{flex:1;padding:12px 8px;border-radius:10px;border:1px solid var(--line);
+  background:var(--surface);color:var(--ink);font-size:12.5px;font-weight:700;cursor:pointer}
+.fb-row button[aria-pressed="true"]{background:var(--amber);border-color:var(--amber);color:#1a1004}
+.fb-note{margin:10px 0 0;font-size:11.5px;color:var(--muted2);line-height:1.6}
+
+/* ---- 走行中：通過直後の確認カード ---- */
+#passCard{position:fixed;z-index:12;left:12px;right:12px;
+  bottom:calc(104px + var(--sb));background:var(--surface);border:1px solid var(--line);
+  border-radius:16px;padding:14px 16px;box-shadow:0 12px 34px rgba(0,0,0,.5)}
+.pc-q{font-size:13.5px;font-weight:800;margin-bottom:10px}
+.pc-row{display:flex;gap:8px}
+.pc-row button{flex:1;padding:14px 8px;border-radius:12px;border:0;font-weight:800;
+  font-size:14px;cursor:pointer}
+#passYes{background:var(--amber);color:#1a1004}
+#passNo{background:var(--surface2);color:var(--ink);border:1px solid var(--line)}

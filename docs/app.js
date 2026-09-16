@@ -98,15 +98,16 @@ function expand(doc){
     if(q.n!=null) p.lanes=q.n;
     if (q.k!=null) p.koma = q.k;
     if(lay==='two_stage_likely'||lay==='two_stage_likely_line'){
-      p.title='二段階右折（推定）片側'+(q.n||3)+'車線';
+      p.title='二段階右折（法令）片側'+(q.n||3)+'車線';
       p.strong = (q.o!=null && q.o>=3);            // OSMの車線数でも裏が取れたもの
-      p.detail = p.strong
-        ? '車両通行帯が3以上の信号交差点への進入路。OpenStreetMapの車線数とも一致しています。原付一種はこの方向から右折するとき二段階右折。'
-        : '車両通行帯が3以上の信号交差点への進入路（県警データ）。ただし地図データ側の車線数では裏が取れていません。交差点で右折レーンが増える場所はこうなります。現地の標識と車線を必ず確認してください。';
+      p.detail = '車両通行帯が3以上＋信号あり。道交法ではこの条件だけで、標識が無くても'
+        + '原付一種は二段階右折が義務になります。' +
+        (p.strong ? '地図データの車線数とも一致しています。'
+                  : '地図データ側の車線数では裏が取れていません（交差点の手前で右折レーンが増える場所はこうなります）。現地の車線を確認してください。');
       p.src=SRC_EST; p.confidence='estimated';
     } else if(lay==='two_stage_required_sign'){
-      p.title='二段階右折 指定（標識あり）';
-      p.detail='「原動機付自転車の右折方法（二段階）」の標識。車線数に関係なく二段階右折が必要。';
+      p.title='二段階右折 標識';
+      p.detail='「原動機付自転車の右折方法（二段階）」の標識。車線数に関係なく二段階右折が必要です。この標識自体は稀で、通常は標識が無くても車線数と信号で義務が決まります。';
       p.src=SRC_REG; p.confidence='sign';
     } else if(lay==='two_stage_forbidden'){
       p.title='二段階右折 禁止（小回り指定）';
@@ -491,6 +492,21 @@ function analyse(r){
   Object.keys(hits).forEach(function(id){
     if(hits[id] >= 5) passBan.push(keep[id]);   // 連続5点以上＝おおむね200m以上の重なり
   });
+  /* 右折する交差点に小回り標識があれば、そこは二段階右折をしてはいけない */
+  var komaTurn=[];
+  r.maneuvers.forEach(function(m,idx){
+    if(!RIGHT_TURN[m.type] || !m.at) return;
+    if (need.some(function(n){ return n.mi===idx; })) return;   // 二段階側で拾えていれば省く
+    var best=null;
+    nearPts(m.at[0],m.at[1]).forEach(function(p){
+      if (p.p.layer!=='two_stage_forbidden') return;
+      var d=meters(m.at,[p.x,p.y]);
+      if (d<=55 && (!best||d<best.d)) best={p:p,d:d};
+    });
+    if (best) komaTurn.push({mi:idx, pt:best.p});
+  });
+  r.komaTurn=komaTurn;
+
   r.need=need; r.passBan=passBan;
   return r;
 }
@@ -684,7 +700,7 @@ function makeDraggable(el){
 function resetSheetHeight(el){ el.style.transition=''; el.style.height=''; }
 
 /* ---------------- 詳細シート ---------------- */
-var TAG={ two_stage_likely:['推定',C.amber], two_stage_required_sign:['標識',C.amber],
+var TAG={ two_stage_likely:['法令',C.amber], two_stage_required_sign:['標識',C.amber],
   two_stage_forbidden:['標識',C.blue], moped_banned:['規制データ',C.danger], expressway:['OSM',C.express] };
 var GKEY={ two_stage_likely:'est', two_stage_required_sign:'req', two_stage_forbidden:'no',
   moped_banned:'ban', expressway:'exp' };
@@ -708,6 +724,7 @@ function openSheet(p, lngLat){
   if(p.src) rows.push(['出典',p.src]);
   $('#sMeta').innerHTML=rows.map(function(r){
     return '<dt>'+escapeHtml(r[0])+'</dt><dd>'+escapeHtml(r[1])+'</dd>'; }).join('');
+  renderFeedback(p);
   resetSheetHeight($('#sheet'));
   $('#sheet').hidden=false;
 }
@@ -763,6 +780,7 @@ function openPoiSheet(f, lngLat){
   rows.push(['出典','OpenStreetMap（背景地図の地点データ）']);
   $('#sMeta').innerHTML=rows.map(function(r){
     return '<dt>'+escapeHtml(r[0])+'</dt><dd>'+escapeHtml(r[1])+'</dd>'; }).join('');
+  $('#fb').hidden=true;
   resetSheetHeight($('#sheet'));
   $('#sheet').hidden=false;
 }
@@ -815,6 +833,92 @@ map.on('mousemove', function(e){
   var hit=map.queryRenderedFeatures(e.point,{layers:ls}).length;
   if (hit) map.getCanvas().style.cursor='pointer';
 });
+
+
+/* ==================== 現地確認のフィードバック ====================
+   推定の当たり外れは現地でしか分からない。走った人の記録を端末に貯める。 */
+function reportsAll(){
+  try { return JSON.parse(lsGet('gentuki.reports')||'{}'); } catch(e){ return {}; }
+}
+function reportSet(uk, v, meta){
+  var all=reportsAll();
+  all[uk]={v:v, t:new Date().toISOString(), lanes:(meta&&meta.lanes)||null,
+           road:(meta&&meta.road)||'', city:(meta&&meta.city)||''};
+  lsSet('gentuki.reports', JSON.stringify(all));
+  updateReportCount();
+}
+function updateReportCount(){
+  var n=Object.keys(reportsAll()).length, el=$('#repCount');
+  if (el) el.textContent = n ? (n+' 件の確認を記録しています') : 'まだ記録はありません';
+  var b=$('#repShare'); if (b) b.hidden = !n;
+}
+function renderFeedback(p){
+  var box=$('#fb');
+  if (!p || p.layer!=='two_stage_likely' || !p.uk){ box.hidden=true; return; }
+  box.hidden=false;
+  var cur=reportsAll()[p.uk];
+  box.dataset.uk=p.uk;
+  box.dataset.meta=JSON.stringify({lanes:p.lanes, road:p.road, city:p.city});
+  $('#fbYes').setAttribute('aria-pressed', String(cur && cur.v==='ok'));
+  $('#fbNo').setAttribute('aria-pressed', String(cur && cur.v==='ng'));
+  $('#fbNote').textContent = cur
+    ? (cur.v==='ok' ? '「実際に二段階右折だった」と記録済み' : '「違った」と記録済み')
+    : '現地を見た人だけが分かる部分です。走ったあとで教えてください。';
+}
+function bindFb(id, v){
+  $(id).addEventListener('click', function(){
+    var box=$('#fb'); if (!box.dataset.uk) return;
+    var meta={}; try{ meta=JSON.parse(box.dataset.meta||'{}'); }catch(e){}
+    reportSet(box.dataset.uk, v, meta);
+    renderFeedback({layer:'two_stage_likely', uk:box.dataset.uk, lanes:meta.lanes,
+                    road:meta.road, city:meta.city});
+    toast(v==='ok'?'ありがとうございます。記録しました':'記録しました。次の更新で見直します',3000);
+  });
+}
+bindFb('#fbYes','ok'); bindFb('#fbNo','ng');
+
+/* 記録をまとめてコピー（友達の端末からでも渡せるように） */
+$('#repShare').addEventListener('click', function(){
+  var all=reportsAll(), lines=['げんつきマップ 現地確認の記録'];
+  Object.keys(all).forEach(function(k){
+    var r=all[k];
+    lines.push([k, r.v, r.lanes||'', r.road||'', r.city||'', r.t].join('\t'));
+  });
+  var txt=lines.join('\n');
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(function(){ toast('記録をコピーしました。そのまま送ってください',4000); })
+      .catch(function(){ prompt('この内容をコピーして送ってください', txt); });
+  } else prompt('この内容をコピーして送ってください', txt);
+});
+
+/* ナビ中：地点を通り過ぎたら「合ってた？」を出し、さらに進んだら引っ込める */
+var passCard=null;
+function checkPassed(alongM){
+  var r=nav.r; if(!r||!r.need) return;
+  for (var i=0;i<r.need.length;i++){
+    var n=r.need[i];
+    var at=nav.manAt[n.mi];
+    if (at==null) continue;
+    var d=alongM-at;
+    if (d>25 && d<160){                 // 通過直後だけ出す
+      if (passCard!==n.pt.i){
+        passCard=n.pt.i;
+        $('#passUk').value=n.pt.p.uk||'';
+        $('#passCard').hidden=false;
+      }
+      return;
+    }
+  }
+  if (passCard!=null){ passCard=null; $('#passCard').hidden=true; }
+}
+$('#passYes').addEventListener('click',function(){ passAnswer('ok'); });
+$('#passNo').addEventListener('click',function(){ passAnswer('ng'); });
+function passAnswer(v){
+  var uk=$('#passUk').value;
+  if (uk) reportSet(uk, v, {});
+  $('#passCard').hidden=true; passCard=-1;
+  if (navigator.vibrate) navigator.vibrate(40);
+}
 
 /* ==================== ナビゲーション（ターンバイターン） ==================== */
 /* Valhalla の maneuver.type。日本は左側通行なので、交差する側＝右折 */
@@ -934,22 +1038,31 @@ function navUpdate(pos){
   var toMan = Math.max(0, nav.manAt[nav.step]-p.along);
   var remain = Math.max(0, total-p.along);
   renderNav(nav.step, remain, toMan);
+  checkPassed(p.along);
 
   /* --- 音声：300m / 100m / 直前 の3回だけ --- */
   var m=r.maneuvers[nav.step];
   if (m){
     var key=nav.step+':';
     var two=(r.need||[]).filter(function(n){ return n.mi===nav.step; })[0];
+    var koma=(r.komaTurn||[]).filter(function(n){ return n.mi===nav.step; })[0];
+    var twoIsKoma = two && two.koma!=null;      // 二段階の条件だが小回り標識がある
     if (toMan<=320 && toMan>150 && !nav.said[key+'far']){
       nav.said[key+'far']=1;
       say('およそ'+navDistText(toMan)+'先、'+(m.sayShort||m.text)+
-          (two? '。この交差点は二段階右折です。' : ''));
+          (twoIsKoma ? '。この交差点は小回り標識があります。'
+                     : two ? '。この交差点は二段階右折です。'
+                     : koma ? '。この交差点は小回り右折です。' : ''));
     } else if (toMan<=140 && toMan>45 && !nav.said[key+'near']){
       nav.said[key+'near']=1;
-      say((two? '二段階右折です。' : '')+ (m.say||m.text));
+      say((two&&!twoIsKoma ? '二段階右折です。' : '')+ (m.say||m.text));
     } else if (toMan<=45 && !nav.said[key+'now']){
       nav.said[key+'now']=1;
-      say(two? 'ここで二段階右折。左端を直進して、向きを変えて待ってください。' : 'まもなくです。');
+      if (twoIsKoma || koma)
+        say('ここは小回り右折です。二段階右折はしないで、右折レーンから曲がってください。');
+      else if (two)
+        say('ここで二段階右折。左端を直進して、向きを変えて待ってください。');
+      else say('まもなくです。');
     }
   }
 
@@ -960,7 +1073,7 @@ function navUpdate(pos){
     bEl.hidden=false;
     bEl.textContent = '⚠ ' + ban.p.title + (ban.p.always?'':('（'+(ban.p.time||ban.p.cond||'時間限定')+'）')) +
                       ' まで約' + (Math.round(ban.d/10)*10) + 'm';
-    if (!nav.banSaid[ban.id] && ban.d<110){
+    if (!nav.banSaid[ban.id] && ban.d<110 && ban.d>35){
       nav.banSaid[ban.id]=1;
       say('この先およそ'+(Math.round(ban.d/10)*10)+'メートルに、'+
           (ban.p.always?'原付が通行できない区間':'時間帯によって原付が通行できない区間')+'があります。標識を確認してください。');
@@ -990,11 +1103,16 @@ function renderNav(step, remainM, toManM){
   var m=r.maneuvers[step]||{};
   if (m.type<=3 && r.maneuvers[step+1]){ step=step+1; m=r.maneuvers[step]; }  // 「出発」は表示しない
   var two=(r.need||[]).filter(function(n){ return n.mi===step; })[0];
-  $('#navIcon').textContent = two? '↱' : (MICON[m.type]||'↑');
+  var koma=(r.komaTurn||[]).filter(function(n){ return n.mi===step; })[0];
+  var twoIsKoma = two && two.koma!=null;
+  $('#navIcon').textContent = (two&&!twoIsKoma)? '↱' : (MICON[m.type]||'↑');
   $('#navDist').textContent = navDistText(toManM);
   $('#navText').textContent = m.text||'';
-  $('#navBand').dataset.two = two? '1':'';
-  $('#navTwo').hidden = !two;
+  var mode = (twoIsKoma||koma) ? 'koma' : (two ? '1' : '');
+  $('#navBand').dataset.two = mode;
+  $('#navTwo').hidden = !mode;
+  if (mode==='koma') $('#navTwo').textContent='小回り標識あり — 二段階右折はしない。右折レーンから曲がる';
+  else if (mode==='1') $('#navTwo').textContent='この交差点は二段階右折 — 左端を直進して向きを変える';
   var min = Math.max(1, Math.round(remainM/1000 / 25 * 60));   // 実効25km/h
   var eta = new Date(Date.now()+min*60000);
   $('#navEta').textContent = ('0'+eta.getHours()).slice(-2)+':'+('0'+eta.getMinutes()).slice(-2);
