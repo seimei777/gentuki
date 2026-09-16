@@ -342,3 +342,4 @@ body[data-theme="day"] #passCard{background:rgba(255,255,255,.96)}
 #passNo{background:var(--surface2);color:var(--ink);border:1px solid var(--line)}
 #passClose{background:none;border:0;color:var(--muted2);font-size:16px;
   padding:4px 6px;cursor:pointer;line-height:1}
+.sw-ped{background:#1f8a4c}

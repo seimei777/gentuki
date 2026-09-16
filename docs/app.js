@@ -2,7 +2,7 @@
 'use strict';
 
 var C = { amber:'#f5871f', blue:'#1a73e8', danger:'#ea4335', express:'#b31412',
-          grey:'#9aa0a6', route:'#1a73e8', routeCasing:'#1557b0' };
+          grey:'#9aa0a6', route:'#1a73e8', routeCasing:'#1557b0', ped:'#1f8a4c' };
 var VALHALLA = 'https://valhalla1.openstreetmap.de/route';
 var ALERT_IN = 300, ALERT_OUT = 430;
 var $ = function(s){ return document.querySelector(s); };
@@ -13,10 +13,11 @@ var GLYPH = {
   req:'<svg class="gl" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="'+C.amber+'"/><path d="M9.5 18.5v-5H15" fill="none" stroke="#141414" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 13.5l-1.8-1.8M15 13.5l-1.8 1.8" fill="none" stroke="#141414" stroke-width="2" stroke-linecap="round"/><path d="M15 9.2V5.6" fill="none" stroke="#141414" stroke-width="2" stroke-linecap="round"/><path d="M15 5.6l-1.6 1.7M15 5.6l1.6 1.7" fill="none" stroke="#141414" stroke-width="2" stroke-linecap="round"/></svg>',
   no:'<svg class="gl" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="'+C.blue+'"/><path d="M10 18V11.5h4" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 11.5l-2-2M14 11.5l-2 2" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round"/></svg>',
   ban:'<svg class="gl" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.2" fill="none" stroke="'+C.danger+'" stroke-width="3"/><path d="M6 17.5L18 6.5" stroke="'+C.danger+'" stroke-width="3" stroke-linecap="round"/></svg>',
+  ped:'<svg class="gl" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#1f8a4c"/><circle cx="12" cy="6.4" r="1.9" fill="#fff"/><path d="M12 8.6c-1.7 0-2.6 1-2.6 2.3v3.2h1.3V19h2.6v-4.9h1.3v-3.2c0-1.3-.9-2.3-2.6-2.3z" fill="#fff"/></svg>',
   exp:'<svg class="gl" viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="2.5" fill="none" stroke="'+C.express+'" stroke-width="2"/><path d="M5.5 12h4M11 12h2.5M15.5 12h3" stroke="'+C.express+'" stroke-width="2" stroke-linecap="round"/></svg>'
 };
 var LAYERS = [
-  {key:'two_stage_likely', glyph:'est', label:'二段階右折（推定）', ids:['ts_line','ts_pt']},
+  {key:'two_stage_likely', glyph:'est', label:'二段階右折', ids:['ts_line','ts_pt']},
   {key:'two_stage_required_sign', glyph:'req', label:'二段階右折 標識', ids:['ts_sign']},
   {key:'two_stage_forbidden', glyph:'no', label:'小回り（禁止）', ids:['ts_no']},
   {key:'moped_banned', glyph:'ban', label:'原付通行禁止', ids:['ban_line','ban_pt']},
@@ -85,10 +86,10 @@ var DATA=null, PTS=[], on={}, grid={}, GSTEP=0.004, lastRouteGeo=null;
 
 /* 配信用の圧縮データを、アプリが使う形に戻す */
 var LAYER_NAME=['two_stage_likely','two_stage_required_sign','two_stage_forbidden',
-                'moped_banned','expressway','two_stage_likely_line'];
+                'moped_banned','expressway','two_stage_likely_line','pedestrian_only'];
 var CITY_NAME=['神戸市','西宮市','宝塚市','尼崎市','伊丹市','芦屋市','川西市','池田市'];
 var SRC_REG='兵庫県警/JARTIC交通規制情報';
-var SRC_EST='兵庫県警/JARTIC交通規制情報（車両通行帯＋信号機から推定）';
+var SRC_EST='兵庫県警・大阪府警/JARTIC交通規制情報（車両通行帯＋信号機から判定）';
 var SRC_OSM='© OpenStreetMap contributors (ODbL)';
 function expand(doc){
   var titles=doc.titles||[];
@@ -112,6 +113,14 @@ function expand(doc){
       p.title='二段階右折 禁止（小回り指定）';
       p.detail='「原動機付自転車の右折方法（小回り）」の標識。車線が多くても右折レーンから普通に右折する。';
       p.src=SRC_REG; p.confidence='sign';
+    } else if(lay==='pedestrian_only'){
+      p.title=titles[q.t]||'歩行者用道路';
+      p.always=!!q.a;
+      p.detail=p.always?'歩行者用道路。原付を含む車両は進入できません。'
+                       :'歩行者用道路（時間帯指定）。指定時間内は原付を含む車両が進入できません。通学路が多く、朝の時間帯だけ規制されている道が多いです。';
+      if(q.h) p.time=q.h;
+      if(q.d) p.cond=q.d;
+      p.src=SRC_REG; p.confidence='sign'; p.uk='ped'+q.t+'@'+f.geometry.coordinates[0];
     } else if(lay==='moped_banned'){
       p.title=titles[q.t]||'通行止め';
       p.always=!!q.a;
@@ -133,7 +142,7 @@ function expand(doc){
 
 var styleReady = new Promise(function(res){ map.once('load', res); });
 var ready = Promise.all([
-  fetch('data/genki.min.geojson?v=4').then(function(r){ return r.json(); }).then(expand),
+  fetch('data/genki.min.geojson?v=5').then(function(r){ return r.json(); }).then(expand),
   styleReady
 ]);
 ready.then(function(a){
@@ -207,6 +216,16 @@ function addLayers(){
     paint:{'circle-radius':5,'circle-color':C.danger,'circle-stroke-width':2,
            'circle-stroke-color':'#fff'}});
 
+  add({id:'ped_line',type:'line',source:'g',filter:['==',['get','layer'],'pedestrian_only'],
+    layout:{'line-cap':'round'},
+    paint:{'line-color':C.ped,'line-width':['interpolate',['linear'],['zoom'],11,1.5,16,5],
+           'line-opacity':['case',['get','always'],.85,.5],
+           'line-dasharray':['case',['get','always'],['literal',[1,0]],['literal',[3,2]]]}});
+  add({id:'ped_pt',type:'circle',source:'g',
+    filter:['all',['==',['get','layer'],'pedestrian_only'],['==',['geometry-type'],'Point']],
+    minzoom:13,
+    paint:{'circle-radius':4,'circle-color':C.ped,'circle-stroke-width':1.5,'circle-stroke-color':'#fff'}});
+
   /* --- ルート（casing を先、本線を後） --- */
   add({id:'route_casing',type:'line',source:'route',filter:['==',['get','k'],'line'],
     layout:{'line-cap':'round','line-join':'round'},
@@ -262,7 +281,7 @@ function addLayers(){
 var clicksBound=false;
 function bindClicks(){
   if (clicksBound) return; clicksBound=true;
-  ['expw','ban_line','ban_pt','ts_line','ts_no','ts_pt','ts_sign','route_turn'].forEach(function(id){
+  ['expw','ban_line','ban_pt','ped_line','ped_pt','ts_line','ts_no','ts_pt','ts_sign','route_turn'].forEach(function(id){
     map.on('click',id,function(e){ openSheet(e.features[0].properties, e.lngLat); });
     map.on('mouseenter',id,function(){ map.getCanvas().style.cursor='pointer'; });
     map.on('mouseleave',id,function(){ map.getCanvas().style.cursor=''; });
@@ -569,7 +588,7 @@ function drawRoute(r){
   r.need.forEach(function(n){
     feats.push({type:'Feature',
       properties:{k:'turn',layer:'two_stage_likely',
-        title:(n.sign?'二段階右折 標識あり':'ここで二段階右折（推定）'),
+        title:(n.sign?'二段階右折 標識あり':'ここで二段階右折'),
         detail:'このルートはこの交差点で右折します。原付一種は二段階右折です。',
         lanes:n.pt.p.lanes, koma:n.koma, city:n.pt.p.city, src:n.pt.p.src},
       geometry:{type:'Point',coordinates:[n.pt.x,n.pt.y]}});
@@ -617,7 +636,7 @@ function renderRoute(r, isAlt){
     if(n) li.className='two';
     var d=m.km>=1 ? (Math.round(m.km*10)/10+' km') : (Math.round(m.km*1000/10)*10+' m');
     li.innerHTML='<span class="d">'+(m.km?d:'')+'</span><span>'+escapeHtml(cleanSay(m.text||''))+
-      (n?('<br><b>▲ ここは二段階右折'+(n.sign?'（標識あり）':'（推定）')+
+      (n?('<br><b>▲ ここは二段階右折'+(n.sign?'（標識あり）':'')+
           (n.koma!=null&&n.koma!==''?'　※近くに小回り標識あり':'')+'</b>'):'')+'</span>';
     ol.appendChild(li);
   });
@@ -697,9 +716,9 @@ function makeDraggable(el){
 function resetSheetHeight(el){ el.style.transition=''; el.style.height=''; }
 
 /* ---------------- 詳細シート ---------------- */
-var TAG={ two_stage_likely:['義務',C.amber], two_stage_required_sign:['標識',C.amber],
+var TAG={ pedestrian_only:['標識',C.ped], two_stage_likely:['義務',C.amber], two_stage_required_sign:['標識',C.amber],
   two_stage_forbidden:['標識',C.blue], moped_banned:['規制データ',C.danger], expressway:['OSM',C.express] };
-var GKEY={ two_stage_likely:'est', two_stage_required_sign:'req', two_stage_forbidden:'no',
+var GKEY={ pedestrian_only:'ped', two_stage_likely:'est', two_stage_required_sign:'req', two_stage_forbidden:'no',
   moped_banned:'ban', expressway:'exp' };
 var sheetPt=null;
 function openSheet(p, lngLat){
@@ -785,7 +804,7 @@ function openPoiSheet(f, lngLat){
 function existingLayers(ids){ return ids.filter(function(i){ return map.getLayer(i); }); }
 map.on('click', function(e){
   if (nav.on) return;
-  var ours=existingLayers(['expw','ban_line','ban_pt','ts_line','ts_no','ts_pt','ts_sign','route_turn']);
+  var ours=existingLayers(['expw','ban_line','ban_pt','ped_line','ped_pt','ts_line','ts_no','ts_pt','ts_sign','route_turn']);
   if (ours.length && map.queryRenderedFeatures(e.point,{layers:ours}).length) return; // 規制の方を優先
 
   var pad=12, box=[[e.point.x-pad,e.point.y-pad],[e.point.x+pad,e.point.y+pad]];
@@ -834,7 +853,7 @@ map.on('mousemove', function(e){
 
 
 /* ==================== 現地確認のフィードバック ====================
-   推定の当たり外れは現地でしか分からない。走った人の記録を端末に貯める。 */
+   データが実際の交差点と合っているかは現地でしか分からない。走った人の記録を貯める。 */
 function reportsAll(){
   try { return JSON.parse(lsGet('gentuki.reports')||'{}'); } catch(e){ return {}; }
 }
@@ -1359,7 +1378,7 @@ function checkNear(){
   alertBox.querySelector('.a-kind').textContent=kd.t;
   alertBox.querySelector('.a-dist').textContent='約 '+best.d+' m';
   alertBox.querySelector('.a-note').textContent=
-    (best.q.p.lanes?('片側'+best.q.p.lanes+'車線・信号交差点（推定）'):'')+
+    (best.q.p.lanes?('片側'+best.q.p.lanes+'車線・信号交差点'):'')+
     (best.q.p.time?(' '+best.q.p.time):'');
   alertBox.hidden=false;
   if(!alerted[best.q.i]){

@@ -97,7 +97,7 @@ def timetext(row):
     return ' / '.join(parts)
 
 raw=collections.defaultdict(list)
-KEEP={'55','56','58','98','4','5','7'}
+KEEP={'55','56','58','98','4','5','7','1'}
 import os
 for src,pref in SRCS:
     if not os.path.exists(src):
@@ -253,6 +253,24 @@ for e in osm:
         'kind':kind,'src':'© OpenStreetMap contributors (ODbL)','confidence':'osm'}})
     nosm+=1
 print('osm feats',nosm)
+# --- 歩行者用道路（原付は進入できない。通学路は時間帯指定が多い） ---
+ped=0
+for row,pts,city in raw['1']:
+    nm=row['県別規制種別名称']
+    cond=row['規制条件']
+    if any(w in cond for w in ('危険物','積載車両')): continue
+    t=timetext(row)
+    always=(t=='' or t=='終日')
+    g={'type':'LineString','coordinates':rnd(simplify(pts,10))} if len(pts)>1 else {'type':'Point','coordinates':rnd(pts)[0]}
+    feats.append({'type':'Feature','geometry':g,
+      'properties':{'layer':'pedestrian_only','city':city,'title':nm,
+        'detail':('歩行者用道路。原付を含む車両は進入できません。' if always
+                  else '歩行者用道路（時間帯指定）。指定時間内は原付を含む車両が進入できません。'),
+        'time':t,'cond':cond,'always':always,'src':row['_pref']+'/JARTIC交通規制情報',
+        'uk':row['ユニークキー'],'confidence':'sign'}})
+    ped+=1
+print('歩行者用道路:', ped)
+
 gj={'type':'FeatureCollection','features':feats}
 json.dump(gj,open('genki.geojson','w'),ensure_ascii=False,separators=(',',':'))
 cnt=collections.Counter(f['properties']['layer'] for f in feats)

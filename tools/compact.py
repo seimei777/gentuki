@@ -8,7 +8,7 @@ SRC = sys.argv[1] if len(sys.argv) > 1 else 'data/genki.geojson'
 DST = sys.argv[2] if len(sys.argv) > 2 else 'web/data/genki.min.geojson'
 
 L = {'two_stage_likely':0,'two_stage_required_sign':1,'two_stage_forbidden':2,
-     'moped_banned':3,'expressway':4,'two_stage_likely_line':5}
+     'moped_banned':3,'expressway':4,'two_stage_likely_line':5,'pedestrian_only':6}
 CITY = {'神戸市':0,'西宮市':1,'宝塚市':2,'尼崎市':3,'伊丹市':4,'芦屋市':5,'川西市':6,'池田市':7}
 
 def simplify(pts, tol):
@@ -48,12 +48,12 @@ for f in src['features']:
             if r not in tindex:
                 tindex[r] = len(titles); titles.append(r)
             q['r'] = tindex[r]
-    if lay in ('moped_banned','expressway'):
+    if lay in ('moped_banned','expressway','pedestrian_only'):
         t = p.get('title') or ''
         if t not in tindex:
             tindex[t] = len(titles); titles.append(t)
         q['t'] = tindex[t]
-    if lay == 'moped_banned':
+    if lay in ('moped_banned','pedestrian_only'):
         if p.get('time'): q['h'] = p['time']
         if p.get('cond'): q['d'] = p['cond']
         q['a'] = 1 if p.get('always') else 0
