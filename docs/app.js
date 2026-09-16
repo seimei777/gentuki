@@ -138,6 +138,17 @@ function boostNightRoads(){
     if(!map.getLayer(id)) return;
     try{ map.setPaintProperty(id,'line-color',NIGHT_ROAD[id]); }catch(e){}
   });
+  /* 夜の一方通行の矢印が道と垂直を向く。スタイル側の不具合。
+     スプライトを実測すると oneway は 9x21 の上向き（上端に矢じり、下に軸）。
+     symbol-placement:line はアイコンの横軸を道に合わせるので、
+     上向きの絵は必ず道と直交する。昼の arrow は 8x5 の右向きなので問題ない。
+     元は icon-opacity 0.5 で真っ黒な道に埋もれ、見えていなかっただけ。
+     回転を90度足して道の向きに合わせる（逆向き用は 180+90=270）。
+     大きさも不透明度も元のまま。 */
+  [['road_oneway',90],['road_oneway_opposite',270]].forEach(function(a){
+    if(!map.getLayer(a[0])) return;
+    try{ map.setLayoutProperty(a[0],'icon-rotate',a[1]); }catch(e){}
+  });
 }
 
 /* 夜のスタイルには poi レイヤーが1つも定義されておらず、店や施設の名前が
