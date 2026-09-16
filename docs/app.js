@@ -124,15 +124,15 @@ function boostNightRoads(){
     if (map.getLayer(a[0])) return;
     try{
       map.addLayer({ id:a[0], type:'symbol', source:'openmaptiles',
-        'source-layer':'transportation', minzoom:15,
+        'source-layer':'transportation', minzoom:14,
         filter:['==',['get','oneway'],a[1]],
-        layout:{ 'symbol-placement':'line', 'symbol-spacing':150,
+        layout:{ 'symbol-placement':'line', 'symbol-spacing':120,
                  'text-field':a[2], 'text-font':['Noto Sans Regular'],
-                 'text-size':['interpolate',['linear'],['zoom'],15,15,19,24],
+                 'text-size':['interpolate',['linear'],['zoom'],14,18,17,26,19,34],
                  'text-rotation-alignment':'map', 'text-pitch-alignment':'map',
-                 'text-keep-upright':false, 'text-padding':2 },
-        paint:{ 'text-color':'#a8c6e6', 'text-halo-color':'rgba(0,0,0,0.9)',
-                'text-halo-width':1.3 }});
+                 'text-keep-upright':false, 'text-padding':1 },
+        paint:{ 'text-color':'#bcd6f2', 'text-halo-color':'rgba(0,0,0,0.95)',
+                'text-halo-width':1.8 }});
     }catch(e){}
   });
 }
