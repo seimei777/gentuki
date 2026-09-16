@@ -354,9 +354,14 @@ ready.then(function(a){
 }).catch(function(e){ console.error(e); toast('データを読み込めませんでした'); });
 
 var banGrid={};
+/* 原付が入れないのは公安委員会の通行禁止だけではない。歩行者用道路にも入れない。
+   件数は 107 に対して 1,107 で、実際にはこちらが大半（商店街・通学路）。
+   Valhalla は日本の歩行者用道路指定を知らないので、こちらで避けるしかない。
+   線分は 1,061 -> 2,868 に増えるが、散らばっているのでセルあたりの最大は 25 のまま。 */
 function buildBanIndex(){
   DATA.features.forEach(function(f){
-    if(f.properties.layer!=='moped_banned' || f.geometry.type!=='LineString') return;
+    var ly=f.properties.layer;
+    if((ly!=='moped_banned' && ly!=='pedestrian_only') || f.geometry.type!=='LineString') return;
     var cs=f.geometry.coordinates;
     for(var i=0;i<cs.length-1;i++){
       var seg={a:cs[i], b:cs[i+1], p:f.properties};
@@ -693,14 +698,27 @@ function analyse(r){
     }
   });
   // 原付通行禁止区間との「重なり」判定（並行する別の道を拾わないよう線分距離で見る）
-  // 出発・到着の前後120mは地点スナップの影響が出るので除外する
-  var hits={}, keep={}, hitPts={}, n0=r.shape.length;
+  /* Valhalla の形状は点間隔が平均60m・最大242mある。そのまま点の数で
+     重なりを測ると、長さ中央値126mの歩行者用道路には2点しか乗らず取りこぼす。
+     10m間隔に打ち直してから見る。こうすると閾値が「何メートル重なったか」になる。 */
+  var STEP_M=10;
+  var dense=[r.shape[0]];
+  for(var di=1; di<r.shape.length; di++){
+    var pa=r.shape[di-1], pb=r.shape[di], dd=meters(pa,pb), nn=Math.floor(dd/STEP_M);
+    for(var dk=1; dk<nn; dk++){
+      var tt=dk*STEP_M/dd;
+      dense.push([pa[0]+(pb[0]-pa[0])*tt, pa[1]+(pb[1]-pa[1])*tt]);
+    }
+    dense.push(pb);
+  }
+  var hits={}, keep={}, hitPts={}, n0=dense.length;
+  /* 出発・到着の前後120mは地点スナップの影響が出るので除外する */
   var skipHead=0, skipTail=n0-1, acc=0;
-  for(var k=1;k<n0;k++){ acc+=meters(r.shape[k-1],r.shape[k]); if(acc>120){ skipHead=k; break; } }
+  for(var k=1;k<n0;k++){ acc+=meters(dense[k-1],dense[k]); if(acc>120){ skipHead=k; break; } }
   acc=0;
-  for(var k2=n0-1;k2>0;k2--){ acc+=meters(r.shape[k2],r.shape[k2-1]); if(acc>120){ skipTail=k2; break; } }
+  for(var k2=n0-1;k2>0;k2--){ acc+=meters(dense[k2],dense[k2-1]); if(acc>120){ skipTail=k2; break; } }
   for(var si=skipHead; si<=skipTail; si++){
-    var c=r.shape[si], kx=Math.floor(c[0]/GSTEP), ky=Math.floor(c[1]/GSTEP), touched={};
+    var c=dense[si], kx=Math.floor(c[0]/GSTEP), ky=Math.floor(c[1]/GSTEP), touched={};
     for(var i=-1;i<=1;i++) for(var j=-1;j<=1;j++){
       var segs=banGrid[(kx+i)+'|'+(ky+j)]; if(!segs) continue;
       for(var n=0;n<segs.length;n++){
@@ -713,15 +731,27 @@ function analyse(r){
       }
     }
   }
-  var nowT=new Date(), banPts=[];
+  var nowT=new Date(), banPts=[], banHits=[];
   Object.keys(hits).forEach(function(id){
-    if(hits[id] < 5) return;                    // 連続5点以上＝おおむね200m以上の重なり
-    passBan.push(keep[id]);
+    var p0=keep[id];
+    /* 重なりの長さで見る（10m刻みなので点数×10m）。
+       歩行者用道路は商店街や路地で短いので60m、通行禁止は幹線が多いので150m。 */
+    var needM = (p0.layer==='pedestrian_only') ? 60 : 150;
+    if(hits[id]*STEP_M < needM) return;
+    passBan.push(p0);
     /* 迂回に使う座標。いま効いていない時間規制まで避けると、
        通れる道を無駄に遠回りすることになるので外す。 */
-    if(activeAt(keep[id], nowT)===false) return;
-    var pts=hitPts[id]||[], step=Math.max(1, Math.ceil(pts.length/4));
-    for(var bi=0; bi<pts.length; bi+=step) banPts.push(pts[bi]);
+    if(activeAt(p0, nowT)===false) return;
+    banHits.push({n:hits[id], pts:hitPts[id]||[]});
+  });
+  /* Valhalla の exclude_locations は上限50。重なりの長い区間から詰め、
+     ひとつの区間で枠を使い切らないよう各3点までにする。 */
+  banHits.sort(function(a,b){ return b.n-a.n; });
+  banHits.forEach(function(h){
+    var step=Math.max(1, Math.ceil(h.pts.length/3)), added=0;
+    for(var bi=0; bi<h.pts.length && banPts.length<50 && added<3; bi+=step){
+      banPts.push(h.pts[bi]); added++;
+    }
   });
   r.banPts=banPts;
   /* 右折する交差点に小回り標識があれば、そこは二段階右折をしてはいけない */
@@ -1263,10 +1293,13 @@ var nav = { on:false, r:null, cum:[], manAt:[], step:0, said:{}, banSaid:{}, off
 
 /* 現在地から一定距離以内にある原付通行禁止区間を探す */
 function nearestBan(c, rad){
-  var kx=Math.floor(c[0]/GSTEP), ky=Math.floor(c[1]/GSTEP), best=null;
+  var kx=Math.floor(c[0]/GSTEP), ky=Math.floor(c[1]/GSTEP), best=null, nb=new Date();
   for (var i=-1;i<=1;i++) for (var j=-1;j<=1;j++){
     var segs=banGrid[(kx+i)+'|'+(ky+j)]; if(!segs) continue;
     for (var n=0;n<segs.length;n++){
+      /* いま通れる時間のものを「一番近い禁止」として掴むと、
+         その裏にある本当に効いている規制を見落とす */
+      if (activeAt(segs[n].p, nb)===false) continue;
       var d=distToSeg(c, segs[n].a, segs[n].b);
       if (d<=rad && (!best || d<best.d))
         best={d:d, p:segs[n].p, id:(segs[n].p.uk||segs[n].p.title)};
