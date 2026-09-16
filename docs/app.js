@@ -1228,32 +1228,73 @@ function makeDraggable(el){
     el.style.height=Math.round(h)+'px';
     setTimeout(function(){ el.style.transition=''; },300);
   }
-  grip.addEventListener('pointerdown',function(e){
-    dragging=true; startY=lastY=e.clientY; lastT=Date.now();
+  function begin(y){
+    dragging=true; startY=lastY=y; lastT=Date.now();
     startH=el.getBoundingClientRect().height;
     el.style.transition='';
+  }
+  function move(y){
+    var now=Date.now(), dt=Math.max(1, now-lastT);
+    v=(lastY-y)/dt; lastY=y; lastT=now;
+    var h=startH + (startY-y);
+    el.style.height=Math.round(Math.max(120, Math.min(vh(0.92), h)))+'px';
+  }
+  function finish(){
+    var h=el.getBoundingClientRect().height, p=peekH(), f=fullH();
+    if (v>0.4) snapTo(f);
+    else if (v<-0.4){ if (h < p*0.7) { el.hidden=true; el.style.height=''; } else snapTo(p); }
+    else snapTo(h > (p+f)/2 ? f : p);
+    v=0;
+  }
+
+  grip.addEventListener('pointerdown',function(e){
+    begin(e.clientY);
     try{ grip.setPointerCapture(e.pointerId); }catch(err){}
     e.preventDefault();
   });
   grip.addEventListener('pointermove',function(e){
     if(!dragging) return;
-    var now=Date.now(), dt=Math.max(1, now-lastT);
-    v=(lastY-e.clientY)/dt; lastY=e.clientY; lastT=now;
-    var h=startH + (startY-e.clientY);
-    h=Math.max(120, Math.min(vh(0.92), h));
-    el.style.height=Math.round(h)+'px';
+    move(e.clientY); e.preventDefault();
+  });
+  ['pointerup','pointercancel'].forEach(function(ev){
+    grip.addEventListener(ev,function(){ if(dragging){ dragging=false; finish(); } });
+  });
+
+  /* 本文の側からも引っ込められるようにする。グリップの数十pxしか掴めないと
+     「引っ張れる」と気づけない。
+       ・一番上まで戻っているときに下へ引いたら、シートを下げる
+       ・いっぱいまで開いていないときに上へ引いたら、広げる
+       ・それ以外は普通に中身をスクロールさせる
+     判定が付くまでは横取りしないので、押しただけでは何も起きない。 */
+  var armed=false, sy=0, sTop=0;
+  el.addEventListener('pointerdown',function(e){
+    if (grip.contains(e.target)) return;
+    if (e.target.closest && e.target.closest('button,a,input,select,textarea,label')) return;
+    armed=true; sy=e.clientY; sTop=el.scrollTop;
+  });
+  el.addEventListener('pointermove',function(e){
+    if(!armed) return;
+    if(!dragging){
+      var dy=e.clientY-sy;
+      if (Math.abs(dy)<6) return;
+      var down=dy>0, h=el.getBoundingClientRect().height;
+      if ((down && sTop<=0) || (!down && h < fullH()-2)){
+        el.style.overflowY='hidden';          // ブラウザ側のスクロールを止める
+        begin(sy);
+        try{ el.setPointerCapture(e.pointerId); }catch(err){}
+      } else { armed=false; return; }
+    }
+    move(e.clientY);
     e.preventDefault();
   });
   ['pointerup','pointercancel'].forEach(function(ev){
-    grip.addEventListener(ev,function(e){
-      if(!dragging) return; dragging=false;
-      var h=el.getBoundingClientRect().height, p=peekH(), f=fullH();
-      if (v>0.4) snapTo(f);
-      else if (v<-0.4){ if (h < p*0.7) { el.hidden=true; el.style.height=''; } else snapTo(p); }
-      else snapTo(h > (p+f)/2 ? f : p);
-      v=0;
+    el.addEventListener(ev,function(){
+      armed=false;
+      if(!dragging) return;
+      dragging=false; el.style.overflowY=''; finish();
     });
   });
+
   /* グリップのタップでも開閉できるようにする（引っ張れると気づかない人向け） */
   grip.addEventListener('click',function(){
     var h=el.getBoundingClientRect().height;
