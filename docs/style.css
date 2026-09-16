@@ -62,7 +62,7 @@ button,input{font-family:inherit}
   font-variant-numeric:tabular-nums}
 .gl{width:15px;height:15px;flex:0 0 auto;display:block}
 
-#tools{position:fixed;z-index:12;right:12px;bottom:calc(14px + var(--sb));display:grid;gap:8px;
+#tools{position:fixed;z-index:5;right:12px;bottom:calc(14px + var(--sb));display:grid;gap:8px;
   transition:bottom .2s ease}
 .tool{width:52px;height:52px;border-radius:15px;border:1px solid var(--line);
   background:rgba(22,27,34,.95);color:var(--ink);cursor:pointer;
@@ -286,7 +286,7 @@ body[data-nav="1"] #navBand{display:block}
   border-radius:10px;word-break:break-all}
 
 /* ---- コンパス（回転・傾きがあるときだけ出る） ---- */
-#compass{position:fixed;z-index:12;right:12px;bottom:calc(292px + var(--sb));transition:bottom .2s ease;
+#compass{position:fixed;z-index:6;right:12px;bottom:calc(292px + var(--sb));transition:bottom .2s ease;
   width:46px;height:46px;border-radius:50%;border:1px solid var(--line);
   background:rgba(22,27,34,.95);display:grid;place-items:center;cursor:pointer;
   backdrop-filter:blur(8px);box-shadow:0 2px 10px rgba(0,0,0,.35);padding:0}
@@ -296,8 +296,10 @@ body[data-theme="day"] #compass{background:rgba(255,255,255,.96);
 /* ナビ中も 2D/音声/昼夜/現在地 とコンパスは出したままにする。
    下の #navBar に潜らないよう、その実測の高さ(--navh)だけ持ち上げる。
    --navh には下端の安全領域が既に含まれているので、--sb は足さない。 */
-body[data-nav="1"] #tools  {bottom:calc(14px  + var(--navh,0px))}
-body[data-nav="1"] #compass{bottom:calc(292px + var(--navh,0px))}
+/* ナビ中だけ下バー(11)より前に出す。通常時に上げてしまうと、
+   地点をタップして開く詳細シート(9)の上にボタンが乗ってしまう。 */
+body[data-nav="1"] #tools  {bottom:calc(14px  + var(--navh,0px)); z-index:12}
+body[data-nav="1"] #compass{bottom:calc(292px + var(--navh,0px)); z-index:12}
 
 .tool[data-mode="3d"]{border-color:var(--route);color:var(--route);background:rgba(26,115,232,.14)}
 .tool[data-mode="3d"] span{color:var(--route)}

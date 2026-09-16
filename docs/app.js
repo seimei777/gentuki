@@ -65,6 +65,32 @@ function forceJapaneseLabels(){
   }
 }
 
+/* 夜の地図はラベルが暗い色のまま置かれていて、走りながらでは読めない。
+   place_* が rgb(101,101,101)、highway_name_other が rgba(80,78,78)、
+   water_name に至っては黒の70%。いずれもほぼ黒の背景に載っている。
+   明るくして縁取りを付け、地名は少し大きくする。 */
+function boostNightLabels(){
+  if (theme!=='night') return;
+  var layers = map.getStyle().layers || [];
+  layers.forEach(function(L){
+    if (L.type!=='symbol') return;
+    var tf; try { tf=map.getLayoutProperty(L.id,'text-field'); } catch(e){ return; }
+    if (!tf) return;
+    var id=L.id, color=null, size=null;
+    if (/^place_/.test(id))              { color='#e3e7ec'; size=/large|city|town/.test(id)?15:12.5; }
+    else if (/^highway_name/.test(id))   { color='#aeb7c2'; size=11.5; }
+    else if (/^water_name|waterway/.test(id)) { color='#7fb0d4'; }
+    else                                  { color='#c3cad3'; }
+    try {
+      map.setPaintProperty(id,'text-color',color);
+      map.setPaintProperty(id,'text-halo-color','rgba(0,0,0,0.9)');
+      map.setPaintProperty(id,'text-halo-width',1.5);
+      map.setPaintProperty(id,'text-halo-blur',0.3);
+      if (size!=null) map.setLayoutProperty(id,'text-size',size);
+    } catch(e){}
+  });
+}
+
 /* 自前レイヤを挿し込む位置：ラベルの下、道路の上。
    「最初の symbol レイヤ」を基準にしてはいけない。夜スタイル(dark)では
    index 8 の water_name が最初の symbol で、道路レイヤ18個すべてがその後ろに来る。
@@ -89,7 +115,7 @@ function setTheme(t){
   document.body.dataset.theme=t;
   map.setStyle(BASEMAP[t]);
   map.once('styledata', function(){       // MapLibre は style.load を発火しないので styledata を使う
-    forceJapaneseLabels();
+    forceJapaneseLabels(); boostNightLabels();
     if (DATA) addLayers();                // ソース・レイヤはスタイル差し替えで消えるので貼り直す
   });
 }
@@ -103,6 +129,164 @@ var CITY_NAME=['神戸市','西宮市','宝塚市','尼崎市','伊丹市','芦�
 var SRC_REG='兵庫県警/JARTIC交通規制情報';
 var SRC_EST='兵庫県警・大阪府警/JARTIC交通規制情報（車両通行帯＋信号機から判定）';
 var SRC_OSM='© OpenStreetMap contributors (ODbL)';
+/* ==================== 規制が「いま」効いているかの判定 ====================
+   時間限定の規制は、その時間外なら通れる。時間だけでなく曜日と祝日も効く。
+   「日曜日、休日を除く」が128件あり、祝日なら通れる道がそれだけある。
+   分からないときは規制中として扱う（通れない道を通れると出す方が危ない）。 */
+
+/* 国民の祝日。振替休日と国民の休日まで見ないと、月曜が祝日の週を取り違える。 */
+function jpHolidaySet(y){
+  var h={};                                   // 'M-D' -> true
+  [[1,1],[2,11],[2,23],[4,29],[5,3],[5,4],[5,5],[8,11],[11,3],[11,23]]
+    .forEach(function(a){ h[a[0]+'-'+a[1]]=1; });
+  function nthMon(m,n){                       // その月の第n月曜
+    var d=new Date(y,m-1,1), add=(8-d.getDay())%7; if(d.getDay()===1) add=0;
+    return 1+add+(n-1)*7;
+  }
+  h['1-'+nthMon(1,2)]=1;                      // 成人の日
+  h['7-'+nthMon(7,3)]=1;                      // 海の日
+  h['9-'+nthMon(9,3)]=1;                      // 敬老の日
+  h['10-'+nthMon(10,2)]=1;                    // スポーツの日
+  var t=y-1980, q=Math.floor(t/4);
+  h['3-'+Math.floor(20.8431+0.242194*t-q)]=1; // 春分の日
+  h['9-'+Math.floor(23.2488+0.242194*t-q)]=1; // 秋分の日
+
+  /* 振替休日：祝日が日曜なら、次の祝日でない日が休みになる */
+  var extra={};
+  Object.keys(h).forEach(function(k){
+    var p=k.split('-'), d=new Date(y,+p[0]-1,+p[1]);
+    if (d.getDay()!==0) return;
+    do { d.setDate(d.getDate()+1); } while (h[(d.getMonth()+1)+'-'+d.getDate()]);
+    extra[(d.getMonth()+1)+'-'+d.getDate()]=1;
+  });
+  /* 国民の休日：祝日に挟まれた平日（敬老の日と秋分の日の間に出る） */
+  for (var dd=1; dd<=30; dd++){
+    var cur=new Date(y,8,dd);
+    if (cur.getDay()===0) continue;
+    var k0='9-'+dd;
+    if (h[k0]) continue;
+    if (h['9-'+(dd-1)] && h['9-'+(dd+1)]) extra[k0]=1;
+  }
+  Object.keys(extra).forEach(function(k){ h[k]=1; });
+  return h;
+}
+var HOLI={};
+function isHoliday(d){
+  var y=d.getFullYear();
+  if(!HOLI[y]) HOLI[y]=jpHolidaySet(y);
+  return !!HOLI[y][(d.getMonth()+1)+'-'+d.getDate()];
+}
+/* その日の区分。祝日は曜日より優先（「日曜日、休日を除く」の「休日」がこれ） */
+var DAYK=['sun','mon','tue','wed','thu','fri','sat'];
+function dayKind(d){ return isHoliday(d) ? 'hol' : DAYK[d.getDay()]; }
+
+/* 「日曜日、休日を除く。」「土曜日、日曜日、休日に限る。」などを読む。
+   規制条件には右左折の話など無関係な文も混ざるので、部分一致で拾う。 */
+var DAYWORD=[['月','mon'],['火','tue'],['水','wed'],['木','thu'],['金','fri'],
+             ['土','sat'],['日','sun'],['休日','hol'],['祝日','hol']];
+function dayFilter(cond){
+  if(!cond) return null;
+  var mode = /を?除く/.test(cond) ? 'exclude'
+           : (/に限る|のみ/.test(cond) ? 'only' : null);
+  if(!mode){
+    /* 「日曜、休日の」「土曜、日曜及び休日」のように、除く/限る が無く
+       曜日だけ書いてあるものは、その日に限る規制として読む */
+    if(!/[月火水木金土日]曜|休日|祝日/.test(cond)) return null;
+    mode='only';
+  }
+  var seg=cond;
+  var m=cond.match(/([^。;；]*?)(?:を?除く|に限る|のみ)/);
+  if(m) seg=m[1];
+  var days={};
+  DAYWORD.forEach(function(w){
+    if(w[1]==='hol'){ if(seg.indexOf('休日')>=0||seg.indexOf('祝日')>=0) days.hol=1; }
+    else if(new RegExp(w[0]+'曜').test(seg)) days[w[1]]=1;
+  });
+  if(!Object.keys(days).length) return null;
+  return {mode:mode, days:days};
+}
+
+/* 規制時間の文字列を読む。
+   例: '7:30-9:00' / '20:00-4:00'(日跨ぎ) / '7:30-9:30 / 14:00-16:30'
+       '土曜　終日' / '日曜・休日　7:00-19:00'（全角空白で曜日が前置される） */
+function parseSpans(timeStr){
+  if(!timeStr) return null;
+  var segs=String(timeStr).split('/'), out=[], bad=false;
+  segs.forEach(function(raw){
+    var s=raw.replace(/　/g,' ').trim();
+    if(!s) return;
+    var days=null;
+    var dm=s.match(/^([月火水木金土日祝・、・休曜]+日?)\s+(.*)$/);
+    if(dm){ days=dayFilter(dm[1]+'に限る'); s=dm[2].trim(); }
+    else if(/^[月火水木金土日祝・、休曜]+$/.test(s)){ days=dayFilter(s+'に限る'); s='終日'; }
+    if(s==='終日'||s===''){ out.push({days:days&&days.days, all:true}); return; }
+    var tm=s.match(/^(\d{1,2}):(\d{2})\s*[-〜~～]\s*(\d{1,2}):(\d{2})$/);
+    if(!tm){ bad=true; return; }
+    out.push({days:days&&days.days,
+              a:(+tm[1])*60+(+tm[2]), b:(+tm[3])*60+(+tm[4])});
+  });
+  if(!out.length) return bad?'unknown':null;
+  return out;
+}
+
+/* いま効いているか。true=規制中 / false=いまは通れる / null=判定できない */
+function activeAt(p, now){
+  if(p.always) return true;
+  var spans=parseSpans(p.time);
+  var df=dayFilter(p.cond);
+  var kind=dayKind(now), min=now.getHours()*60+now.getMinutes();
+  if(df){
+    var inList=!!df.days[kind];
+    if(df.mode==='exclude' && inList) return false;   // 除外日なので今日は規制なし
+    if(df.mode==='only' && !inList) return false;
+  }
+  if(spans==='unknown') return null;
+  if(!spans) return df ? true : null;   // 曜日だけ指定で時間の記載が無い＝その日は終日
+  for(var i=0;i<spans.length;i++){
+    var s=spans[i];
+    if(s.days && !s.days[kind]) continue;
+    if(s.all) return true;
+    if(s.a<=s.b){ if(min>=s.a && min<s.b) return true; }
+    else { if(min>=s.a || min<s.b) return true; }     // 20:00-4:00 のような日跨ぎ
+  }
+  return false;
+}
+
+/* 表示用：いまの状態と、次に変わる時刻 */
+function activeLabel(p, now){
+  now = now || new Date();
+  var a=activeAt(p, now);
+  if(a===null) return {state:'unknown', text:'規制時間の判定ができません'};
+  if(a===false) return {state:'open', text:'いまは通れます'};
+  var spans=parseSpans(p.time), min=now.getHours()*60+now.getMinutes(), kind=dayKind(now), end=null;
+  if(spans && spans!=='unknown') spans.forEach(function(s){
+    if(s.all||(s.days&&!s.days[kind])) return;
+    var inIt = s.a<=s.b ? (min>=s.a&&min<s.b) : (min>=s.a||min<s.b);
+    if(inIt && end===null) end=s.b;
+  });
+  var hh=function(m){ return Math.floor(m/60)%24+':'+('0'+(m%60)).slice(-2); };
+  return {state:'closed', text: end!=null ? ('いま規制中（'+hh(end)+'まで）') : 'いま規制中'};
+}
+
+/* 各地点に「いまこの規制が効いているか」(act) を持たせる。
+   1=規制中 / 0=いまは通れる。判定できないものは安全側に倒して 1 にする。
+   1分ごとに見直し、実際に変わった時だけ地図に流し直す（毎分の再描画は重い）。 */
+function stampActive(){
+  if(!DATA) return false;
+  var now=new Date(), changed=false;
+  DATA.features.forEach(function(f){
+    var p=f.properties;
+    if(p.layer!=='moped_banned' && p.layer!=='pedestrian_only') return;
+    var a=activeAt(p, now);
+    var v=(a===false)?0:1;
+    if(p.act!==v){ p.act=v; changed=true; }
+  });
+  return changed;
+}
+setInterval(function(){
+  if(stampActive() && map.getSource('g')) map.getSource('g').setData(DATA);
+}, 60000);
+
 function expand(doc){
   var titles=doc.titles||[];
   doc.features.forEach(function(f){
@@ -166,7 +350,7 @@ ready.then(function(a){
     PTS.push(p);
     var k = gkey(p.x,p.y); (grid[k]||(grid[k]=[])).push(p);
   });
-  buildBanIndex(); forceJapaneseLabels(); addLayers(); buildChips(); hideToast();
+  buildBanIndex(); forceJapaneseLabels(); boostNightLabels(); addLayers(); buildChips(); hideToast();
 }).catch(function(e){ console.error(e); toast('データを読み込めませんでした'); });
 
 var banGrid={};
@@ -208,6 +392,7 @@ function meters(a,b){
 
 function addLayers(){
   var before = firstSymbolLayerId();   // ラベルの下に入れる
+  stampActive();
   if (!map.getSource('g'))     map.addSource('g',{type:'geojson',data:DATA});
   if (!map.getSource('route')) map.addSource('route',{type:'geojson',
     data: lastRouteGeo || {type:'FeatureCollection',features:[]}});
@@ -223,7 +408,8 @@ function addLayers(){
   add({id:'ban_line',type:'line',source:'g',filter:['==',['get','layer'],'moped_banned'],
     layout:{'line-cap':'round'},
     paint:{'line-color':C.danger,'line-width':['interpolate',['linear'],['zoom'],10,2.5,16,8],
-           'line-opacity':['case',['get','always'],.85,.5]}});
+           /* いま効いていない時間規制は薄くする（通れるので） */
+           'line-opacity':['case',['==',['get','act'],0],.18,.85]}});
   add({id:'ban_pt',type:'circle',source:'g',
     filter:['all',['==',['get','layer'],'moped_banned'],['==',['geometry-type'],'Point']],
     paint:{'circle-radius':5,'circle-color':C.danger,'circle-stroke-width':2,
@@ -240,7 +426,8 @@ function addLayers(){
   add({id:'ped_line_t',type:'line',source:'g',
     filter:['all',['==',['get','layer'],'pedestrian_only'],['!=',['get','always'],true]],
     layout:{'line-cap':'round'},
-    paint:{'line-color':C.ped,'line-width':PED_W,'line-opacity':.55,
+    paint:{'line-color':C.ped,'line-width':PED_W,
+           'line-opacity':['case',['==',['get','act'],0],.18,.75],
            'line-dasharray':[3,2]}});
   add({id:'ped_pt',type:'circle',source:'g',
     filter:['all',['==',['get','layer'],'pedestrian_only'],['==',['geometry-type'],'Point']],
@@ -526,9 +713,17 @@ function analyse(r){
       }
     }
   }
+  var nowT=new Date(), banPts=[];
   Object.keys(hits).forEach(function(id){
-    if(hits[id] >= 5) passBan.push(keep[id]);   // 連続5点以上＝おおむね200m以上の重なり
+    if(hits[id] < 5) return;                    // 連続5点以上＝おおむね200m以上の重なり
+    passBan.push(keep[id]);
+    /* 迂回に使う座標。いま効いていない時間規制まで避けると、
+       通れる道を無駄に遠回りすることになるので外す。 */
+    if(activeAt(keep[id], nowT)===false) return;
+    var pts=hitPts[id]||[], step=Math.max(1, Math.ceil(pts.length/4));
+    for(var bi=0; bi<pts.length; bi+=step) banPts.push(pts[bi]);
   });
+  r.banPts=banPts;
   /* 右折する交差点に小回り標識があれば、そこは二段階右折をしてはいけない */
   var komaTurn=[];
   r.maneuvers.forEach(function(m,idx){
@@ -556,6 +751,7 @@ function requestRoute(){
     routeData=analyse(r);
     drawRoute(routeData); renderRoute(routeData,false); hideToast();
     if(routeData.need.length) prepareAlternative();
+    if(routeData.banPts.length) avoidBannedIfNeeded();   // 原付が通れない区間を避け直す
   }).catch(function(e){
     console.error(e); toast('ルートを計算できませんでした。少し時間をおいて試してください',5000);
   });
@@ -570,8 +766,10 @@ function avoidBannedIfNeeded(){
   toast('原付が通れない区間を避けて計算し直しています…',0);
   valhalla(me, dest, ex).then(function(r2){
     var a2=analyse(r2);
-    var stillBanned=a2.passBan.filter(function(p){ return p.always; }).length;
-    var wasBanned=routeData.passBan.filter(function(p){ return p.always; }).length;
+    var tn=new Date();
+    function liveBan(p){ return activeAt(p, tn)!==false; }   // いま効いているものだけ数える
+    var stillBanned=a2.passBan.filter(liveBan).length;
+    var wasBanned=routeData.passBan.filter(liveBan).length;
     hideToast();
     if (stillBanned < wasBanned && a2.km < before*1.35){   // 35%以上遠回りになるなら
                                                           // 迂回せず警告に留める
@@ -634,13 +832,21 @@ function renderRoute(r, isAlt){
     w.insertAdjacentHTML('beforeend',
       '<div class="wrow ok">'+GLYPH.est+'<div>ルート上に二段階右折が必要な右折はありません</div></div>');
   }
-  var timed=r.passBan.filter(function(p){ return !p.always; });
+  var nw=new Date();
+  var timed=r.passBan.filter(function(p){ return !p.always && activeAt(p,nw)!==false; });
+  var offNow=r.passBan.filter(function(p){ return !p.always && activeAt(p,nw)===false; });
   var always=r.passBan.filter(function(p){ return p.always; });
   if(timed.length){
     var tn={}; timed.forEach(function(p){ tn[p.title+(p.time?('　'+p.time):'')]=1; });
     w.insertAdjacentHTML('beforeend',
-      '<div class="wrow hot">'+GLYPH.ban+'<div><b>時間・曜日限定の通行禁止</b>と重なる区間があります（'+
-      escapeHtml(Object.keys(tn).join('、'))+'）。経路探索はこの規制を知りません。現地の標識で必ず確認してください</div></div>');
+      '<div class="wrow hot">'+GLYPH.ban+'<div><b>いま規制中の通行禁止</b>と重なる区間があります（'+
+      escapeHtml(Object.keys(tn).join('、'))+'）。現地の標識で必ず確認してください</div></div>');
+  }
+  if(offNow.length){
+    var on2={}; offNow.forEach(function(p){ on2[p.title+(p.time?('　'+p.time):'')]=1; });
+    w.insertAdjacentHTML('beforeend',
+      '<div class="wrow ok">'+GLYPH.ban+'<div><b>いまの時間は通れます</b>（'+
+      escapeHtml(Object.keys(on2).join('、'))+'）。出発が遅れて規制時間に入る場合は通れません</div></div>');
   }
   if(always.length){
     var an={}; always.forEach(function(p){ an[p.title]=1; });
@@ -757,6 +963,10 @@ function openSheet(p, lngLat){
     (p.osm>=3?'（一致）':'（交差点で右折レーンが増える場所はこうなります）')]);
   if(p.road) rows.push(['道路',p.road]);
   if(p.time) rows.push(['規制時間',p.time]);
+  if(p.layer==='moped_banned'||p.layer==='pedestrian_only'){
+    var st=activeLabel(p);
+    rows.push(['いまの状態', st.text]);
+  }
   if(p.cond) rows.push(['条件',p.cond]);
   if(p.excl) rows.push(['除外される車両',p.excl+
     (/原付|二輪全般|車両全般/.test(p.excl)?'':'　※原付は含まれません（軽車両・自転車に原付は入らない）')]);
@@ -1192,13 +1402,15 @@ function navUpdate(pos){
   var ban=nearestBan(c, 150);
   var bEl=$('#navBan');
   if (ban){
-    bEl.hidden=false;
+    /* いま通れる時間なら、走行中に警告を出しても迷わせるだけなので出さない */
+    var liveNow = activeAt(ban.p, new Date()) !== false;
+    bEl.hidden = !liveNow;
     bEl.textContent = '⚠ ' + ban.p.title + (ban.p.always?'':('（'+(ban.p.time||ban.p.cond||'時間限定')+'）')) +
                       ' まで約' + (Math.round(ban.d/10)*10) + 'm';
-    if (!nav.banSaid[ban.id] && ban.d<110 && ban.d>35){
+    if (liveNow && !nav.banSaid[ban.id] && ban.d<110 && ban.d>35){
       nav.banSaid[ban.id]=1;
       say('この先およそ'+(Math.round(ban.d/10)*10)+'メートルに、'+
-          (ban.p.always?'原付が通行できない区間':'時間帯によって原付が通行できない区間')+'があります。標識を確認してください。');
+          (ban.p.always?'原付が通行できない区間':'いま規制時間中で原付が通行できない区間')+'があります。標識を確認してください。');
     }
   } else bEl.hidden=true;
 
@@ -1475,9 +1687,12 @@ var KIND={
 function checkNear(){
   if(!me || !PTS.length) return;
   var active = routeNeedSet();
-  var best=null;
+  var best=null, nowA=new Date();
   nearPts(me[0],me[1]).forEach(function(q){
     if(!on[q.p.layer]) return;
+    /* いま効いていない時間規制で警告を出すと、通れる道で毎回鳴ることになる */
+    if((q.p.layer==='moped_banned'||q.p.layer==='pedestrian_only')
+       && activeAt(q.p, nowA)===false) return;
     if(active && !active[q.i] && q.p.layer==='two_stage_likely') return; // ルート中は経路上のものを優先
     var d=meters(me,[q.x,q.y]);
     if(d<=ALERT_IN && (!best||d<best.d)) best={q:q,d:d};
@@ -1492,7 +1707,7 @@ function checkNear(){
   alertBox.querySelector('.a-dist').textContent='約 '+best.d+' m';
   alertBox.querySelector('.a-note').textContent=
     (best.q.p.lanes?('片側'+best.q.p.lanes+'車線・信号交差点'):'')+
-    (best.q.p.time?(' '+best.q.p.time):'');
+    (best.q.p.time?(' '+best.q.p.time+'（'+activeLabel(best.q.p).text+'）'):'');
   alertBox.hidden=false;
   if(!alerted[best.q.i]){
     alerted[best.q.i]=1;
