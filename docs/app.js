@@ -788,6 +788,14 @@ $('#q').addEventListener('input',function(){
   if (v.length<2){ results.hidden=true; return; }
   searchTimer=setTimeout(function(){ search(v,true); }, 280);
 });
+/* 検索欄の外を触ったら候補・履歴を閉じる。入力モードでないのに
+   履歴が出たままになっていた。blur で消すと候補をタップした瞬間に
+   消えてクリックが届かないので、押した場所で判断する。 */
+document.addEventListener('pointerdown',function(e){
+  if (results.hidden) return;
+  if (e.target.closest && (e.target.closest('#searchWrap') || e.target.closest('#results'))) return;
+  results.hidden=true;
+}, true);
 $('#q').addEventListener('focus',function(){
   var v=this.value.trim();
   if (!v){ showHistory(); return; }
@@ -1344,7 +1352,9 @@ $('#sHere').addEventListener('click',function(){
   if(sheetPt){ $('#sheet').hidden=true; setDestination(sheetPt,'選択した地点'); }
 });
 $('#infoBtn').addEventListener('click',function(){ $('#info').hidden=false; });
-$('#iClose').addEventListener('click',function(){ $('#info').hidden=true; });
+['#iClose','#iCloseTop'].forEach(function(id){
+  $(id).addEventListener('click',function(){ $('#info').hidden=true; });
+});
 ready.then(function(){
   document.querySelectorAll('#info [data-glyph]').forEach(function(el){
     el.outerHTML=GLYPH[el.dataset.glyph];
