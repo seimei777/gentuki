@@ -140,17 +140,17 @@ var NIGHT_ROAD={
    symbol-placement:line がアイコンの横軸を道に合わせるため直交していた）。
    昼夜で同じ絵・同じ大きさになり、色だけテーマで変える。 */
 function makeArrow(fill, edge){
-  var s=2, W=22*s, H=10*s;                   // s=2 は Retina 用の解像度
+  var s=2, W=22*s, H=8*s;                    // s=2 は Retina 用の解像度
   var cv=document.createElement('canvas'); cv.width=W; cv.height=H;
   var g=cv.getContext('2d');
   function draw(col, grow){
     g.strokeStyle=col; g.fillStyle=col; g.lineCap='butt';
-    g.lineWidth=3*s+grow*2;
+    g.lineWidth=2.1*s+grow*2;
     g.beginPath(); g.moveTo(2*s, H/2); g.lineTo(W-8*s, H/2); g.stroke();
     g.beginPath();
     g.moveTo(W-1.5*s+grow, H/2);
-    g.lineTo(W-9.5*s-grow, 1*s-grow);
-    g.lineTo(W-9.5*s-grow, H-1*s+grow);
+    g.lineTo(W-9.5*s-grow, 0.7*s-grow);
+    g.lineTo(W-9.5*s-grow, H-0.7*s+grow);
     g.closePath(); g.fill();
   }
   if(edge) draw(edge, 1.6*s);                // 縁取り。道の明暗どちらでも輪郭が出る
