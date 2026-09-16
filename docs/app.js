@@ -367,12 +367,23 @@ function setDestination(lngLat, name){
   }
 }
 
-function valhalla(from, to, exclude){
-  var body={ locations:[{lat:from[1],lon:from[0]},{lat:to[1],lon:to[0]}],
+function valhalla(from, to, exclude, heading){
+  var origin={lat:from[1],lon:from[0]};
+  if (heading!=null){ origin.heading=heading; origin.heading_tolerance=45; }  // 来た道へ戻されるのを防ぐ
+  var body={ locations:[origin,{lat:to[1],lon:to[0]}],
     costing:'motor_scooter',
-    costing_options:{ motor_scooter:{ top_speed:30, use_highways:0, use_tolls:0 } },
+    costing_options:{ motor_scooter:{
+      top_speed:30,            // 法定速度。これを超える道を避ける効果も持つ
+      use_primary:0.2,         // 幹線を避ける（既定0.5）。速度差が原付には危険
+      use_hills:0.25,          // 登坂力が低いので坂を避ける（既定0.5）
+      use_tracks:0.1,          // 既定0.5だと未舗装の農道に入りうる
+      use_living_streets:0.3,
+      use_highways:0, use_tolls:0,
+      maneuver_penalty:10      // 曲がりの少ない素直なルートにする
+    }},
     directions_options:{ language:'ja-JP', units:'kilometers' } };
-  if(exclude && exclude.length) body.exclude_locations=exclude.map(function(p){ return {lat:p[1],lon:p[0]}; });
+  if(exclude && exclude.length) body.exclude_locations=
+    exclude.slice(0,50).map(function(p){ return {lat:p[1],lon:p[0]}; });   // Valhallaの上限は50
   return fetch(VALHALLA+'?json='+encodeURIComponent(JSON.stringify(body)),
       { headers:{ 'X-Client-Id':'seimei777.github.io/gentuki' } })
     .then(function(r){ if(!r.ok) throw new Error('route '+r.status); return r.json(); })
@@ -399,7 +410,10 @@ function parseTrip(trip){
   var shape=decodePolyline(leg.shape,6);
   var maneuvers=leg.maneuvers.map(function(m){
     return { type:m.type, text:m.instruction, km:m.length||0,
+             say:m.verbal_pre_transition_instruction||m.instruction,
+             sayShort:m.verbal_succinct_transition_instruction||m.verbal_pre_transition_instruction||m.instruction,
              at:shape[Math.min(m.begin_shape_index, shape.length-1)],
+             shapeIndex:m.begin_shape_index,
              streets:(m.street_names||[]).join('/') };
   });
   return { shape:shape, maneuvers:maneuvers,
@@ -598,6 +612,170 @@ ready.then(function(){
   });
 });
 
+
+/* ==================== ナビゲーション（ターンバイターン） ==================== */
+/* Valhalla の maneuver.type。日本は左側通行なので、交差する側＝右折 */
+var MTYPE_RIGHT={9:1,10:1,11:1}, MTYPE_LEFT={14:1,15:1,16:1};
+var MICON={1:'↑',2:'↑',3:'↑',4:'◉',5:'◉',6:'◉',7:'↑',8:'↑',
+  9:'↗',10:'↱',11:'⤳',12:'⤺',13:'⤻',14:'⤾',15:'↰',16:'↖',
+  17:'↑',18:'↗',19:'↖',20:'↗',21:'↖',22:'↑',23:'↗',24:'↖',
+  25:'⤭',26:'⟳',27:'⟳',37:'⤭',38:'⤭'};
+
+var nav = { on:false, r:null, cum:[], manAt:[], step:0, said:{}, off:0,
+            lastReroute:0, wakeLock:null, follow:true };
+
+function navDistText(m){
+  if (m>=1000) return (Math.round(m/100)/10)+' km';
+  if (m>=300)  return (Math.round(m/50)*50)+' m';
+  if (m>=100)  return (Math.round(m/10)*10)+' m';
+  if (m>=30)   return (Math.round(m/10)*10)+' m';
+  return 'まもなく';
+}
+function cumulative(shape){
+  var c=[0];
+  for (var i=1;i<shape.length;i++) c.push(c[i-1]+meters(shape[i-1],shape[i]));
+  return c;
+}
+/* 現在地をルートに投影し、進行距離・残距離・次の案内までの距離を返す */
+function project(r, pt){
+  var best=null, from=Math.max(0, nav.step>0 ? nav.lastIdx-40 : 0);
+  var to=Math.min(r.shape.length-1, (nav.lastIdx||0)+200);
+  if (nav.lastIdx==null){ from=0; to=r.shape.length-1; }
+  for (var i=from;i<to;i++){
+    var d=distToSeg(pt, r.shape[i], r.shape[i+1]);
+    if (!best || d<best.d) best={d:d,i:i};
+  }
+  if (!best) return null;
+  nav.lastIdx=best.i;
+  var along = nav.cum[best.i] + meters(r.shape[best.i], pt);
+  return { dist:best.d, idx:best.i, along:Math.min(along, nav.cum[nav.cum.length-1]) };
+}
+
+function startNav(){
+  var r = showingAlt? altData : routeData;
+  if (!r) return;
+  if (!me){ toast('先に現在地をオンにしてください',4000); startLocate(function(){ startNav(); }); return; }
+  nav.on=true; nav.r=r; nav.step=0; nav.said={}; nav.off=0; nav.lastIdx=null; nav.follow=true;
+  nav.cum = cumulative(r.shape);
+  nav.manAt = r.maneuvers.map(function(m){
+    var i=Math.min(m.shapeIndex!=null?m.shapeIndex:0, nav.cum.length-1);
+    return nav.cum[i];
+  });
+  document.body.dataset.nav='1';
+  $('#navBand').hidden=false; $('#navBar').hidden=false; $('#navRecenter').hidden=true;
+  $('#route').hidden=true; $('#sheet').hidden=true;
+  map.dragRotate.disable(); map.touchZoomRotate.disableRotation();
+  acquireWakeLock();
+  if (!voiceOn) $('#voiceBtn').click();      // 案内は音声が主役なので自動でオンにする
+  renderNav(0, r.km*1000, 0);
+  say('案内を開始します。' + (r.need.length? ('この先、二段階右折が'+r.need.length+'か所あります。') : ''));
+}
+function stopNav(){
+  nav.on=false; nav.r=null; nav.follow=true;
+  document.body.dataset.nav='';
+  $('#navBand').hidden=true; $('#navBar').hidden=true; $('#navRecenter').hidden=true;
+  map.dragRotate.enable(); map.touchZoomRotate.enableRotation();
+  releaseWakeLock();
+  try{ speechSynthesis.cancel(); }catch(e){}
+  map.easeTo({pitch:0, bearing:0, duration:600});
+  if (routeData) $('#route').hidden=false;
+}
+
+function navUpdate(pos){
+  if (!nav.on || !nav.r) return;
+  var r=nav.r, c=[pos.coords.longitude,pos.coords.latitude];
+  var acc=pos.coords.accuracy||0, sp=pos.coords.speed||0;
+  var p=project(r, c);
+  if (!p) return;
+
+  /* --- 逸脱判定：GPS精度を閾値に足す。固定値だと市街地で誤検知が止まらない --- */
+  var thr = 45 + Math.min(acc, 40);
+  if (p.dist > thr){
+    nav.off++;
+    if (nav.off>=3 && Date.now()-nav.lastReroute > 12000){
+      nav.off=0; nav.lastReroute=Date.now();
+      toast('ルートを再検索しています…',0);
+      var hd = (lastHeading!=null)? Math.round(lastHeading) : null;
+      valhalla(c, dest, null, hd).then(function(nr){
+        nav.r = routeData = analyse(nr);
+        nav.cum = cumulative(nr.shape);
+        nav.manAt = nr.maneuvers.map(function(m){
+          return nav.cum[Math.min(m.shapeIndex!=null?m.shapeIndex:0, nav.cum.length-1)]; });
+        nav.step=0; nav.said={}; nav.lastIdx=null;
+        drawRoute(nav.r); renderRoute(nav.r,false); $('#route').hidden=true;
+        hideToast(); say('ルートを再検索しました。');
+      }).catch(function(){ hideToast(); toast('ルートを更新できませんでした',4000); });
+    }
+  } else nav.off=0;
+
+  /* --- 進行状況 --- */
+  var total=nav.cum[nav.cum.length-1];
+  while (nav.step < nav.manAt.length-1 && p.along > nav.manAt[nav.step]+12) nav.step++;
+  var toMan = Math.max(0, nav.manAt[nav.step]-p.along);
+  var remain = Math.max(0, total-p.along);
+  renderNav(nav.step, remain, toMan);
+
+  /* --- 音声：300m / 100m / 直前 の3回だけ --- */
+  var m=r.maneuvers[nav.step];
+  if (m){
+    var key=nav.step+':';
+    var two=(r.need||[]).filter(function(n){ return n.mi===nav.step; })[0];
+    if (toMan<=320 && toMan>150 && !nav.said[key+'far']){
+      nav.said[key+'far']=1;
+      say('およそ'+navDistText(toMan)+'先、'+(m.sayShort||m.text)+
+          (two? '。この交差点は二段階右折です。' : ''));
+    } else if (toMan<=140 && toMan>45 && !nav.said[key+'near']){
+      nav.said[key+'near']=1;
+      say((two? '二段階右折です。' : '')+ (m.say||m.text));
+    } else if (toMan<=45 && !nav.said[key+'now']){
+      nav.said[key+'now']=1;
+      say(two? 'ここで二段階右折。左端を直進して、向きを変えて待ってください。' : 'まもなくです。');
+    }
+  }
+
+  /* --- カメラ追従 --- */
+  if (nav.follow){
+    var z = sp>11 ? 16.5 : sp>5.5 ? 17.0 : 17.5;
+    var b = (lastHeading!=null)? lastHeading : map.getBearing();
+    map.easeTo({ center:c, bearing:b, pitch:60, zoom:z,
+      padding:{top:0,bottom:Math.round(map.getContainer().clientHeight*0.5),left:0,right:0},
+      duration:900, easing:function(t){return t;}, essential:true });
+  }
+}
+function renderNav(step, remainM, toManM){
+  var r=nav.r; if(!r) return;
+  var m=r.maneuvers[step]||{};
+  var two=(r.need||[]).filter(function(n){ return n.mi===step; })[0];
+  $('#navIcon').textContent = two? '↱' : (MICON[m.type]||'↑');
+  $('#navDist').textContent = navDistText(toManM);
+  $('#navText').textContent = m.text||'';
+  $('#navBand').dataset.two = two? '1':'';
+  $('#navTwo').hidden = !two;
+  var min = Math.max(1, Math.round(remainM/1000 / 25 * 60));   // 実効25km/h
+  var eta = new Date(Date.now()+min*60000);
+  $('#navEta').textContent = ('0'+eta.getHours()).slice(-2)+':'+('0'+eta.getMinutes()).slice(-2);
+  $('#navMin').textContent = min+'分';
+  $('#navRemain').textContent = (remainM>=1000? (Math.round(remainM/100)/10)+' km' : Math.round(remainM)+' m');
+}
+
+/* 画面を消させない（Webでは画面ロック中に位置取得自体が止まるため、これが唯一の手段） */
+function acquireWakeLock(){
+  if (!('wakeLock' in navigator)) return;
+  navigator.wakeLock.request('screen').then(function(w){
+    nav.wakeLock=w;
+    w.addEventListener('release',function(){ nav.wakeLock=null; });
+  }).catch(function(){});
+}
+function releaseWakeLock(){ try{ nav.wakeLock && nav.wakeLock.release(); }catch(e){} nav.wakeLock=null; }
+document.addEventListener('visibilitychange',function(){
+  if (nav.on && document.visibilityState==='visible' && !nav.wakeLock) acquireWakeLock();
+});
+
+$('#navStart').addEventListener('click', startNav);
+$('#navEnd').addEventListener('click', stopNav);
+$('#navRecenter').addEventListener('click', function(){ nav.follow=true; this.hidden=true; });
+map.on('dragstart', function(){ if (nav.on){ nav.follow=false; $('#navRecenter').hidden=false; } });
+
 /* ---------------- 現在地・近接アラート ---------------- */
 var watch=null, meMarker=null, me=null, voiceOn=false, alerted={}, lastHeading=null;
 var alertBox=$('#alert');
@@ -637,6 +815,7 @@ function startLocate(cb){
     el2.classList.toggle('weak', acc>65);
     if(first){ first=false; if(cb) cb(); }
     checkNear();
+    navUpdate(pos);
   }, function(err){
     $('#locBtn').setAttribute('aria-pressed','false'); watch=null;
     toast('現在地を取得できません（'+err.message+'）',5000);
@@ -691,7 +870,17 @@ function routeNeedSet(){
   if(!r || !r.need.length) return null;
   var s={}; r.need.forEach(function(n){ s[n.pt.i]=1; }); return s;
 }
+/* Valhalla の日本語文は「山手幹線, Yamate Trunk Roadです」のようにローマ字が併記され、
+   句点が重なることがある。読み上げ用に整える。 */
+function cleanSay(t){
+  return String(t||'')
+    .replace(/,\s*[A-Za-z][A-Za-z0-9 .'\-]*/g,'')   // 併記されたローマ字名を落とす
+    .replace(/。。+/g,'。')
+    .replace(/です。その先/g,'です。つぎに、')
+    .trim();
+}
 function say(text){
+  text = cleanSay(text);
   try{ var u=new SpeechSynthesisUtterance(text); u.lang='ja-JP'; u.rate=1.05;
     speechSynthesis.cancel(); speechSynthesis.speak(u); }catch(e){}
 }

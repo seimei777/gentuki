@@ -49,7 +49,29 @@
     <em id="avoidNote"></em>
   </label>
 
+  <button id="navStart" class="navstart">案内を開始</button>
+
   <ol class="r-steps" id="rSteps"></ol>
+</div>
+
+<div id="navBand" hidden>
+  <div class="nb-main">
+    <div id="navIcon" class="nb-icon">↑</div>
+    <div class="nb-txt">
+      <div id="navDist" class="nb-dist">—</div>
+      <div id="navText" class="nb-road"></div>
+    </div>
+  </div>
+  <div id="navTwo" class="nb-two" hidden>この交差点は二段階右折 — 左端を直進して向きを変える</div>
+</div>
+
+<button id="navRecenter" hidden>現在地に戻す</button>
+
+<div id="navBar" hidden>
+  <div class="nv"><b id="navEta">--:--</b><span>到着</span></div>
+  <div class="nv"><b id="navMin">--</b><span>残り</span></div>
+  <div class="nv"><b id="navRemain">--</b><span>距離</span></div>
+  <button id="navEnd">終了</button>
 </div>
 
 <div id="alert" hidden role="status">
