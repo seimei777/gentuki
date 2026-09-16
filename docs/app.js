@@ -42,7 +42,7 @@ var GLYPH = {
   exp:'<svg class="gl" viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="2.5" fill="none" stroke="'+C.express+'" stroke-width="2"/><path d="M5.5 12h4M11 12h2.5M15.5 12h3" stroke="'+C.express+'" stroke-width="2" stroke-linecap="round"/></svg>'
 };
 var LAYERS = [
-  {key:'two_stage_likely', glyph:'est', label:'二段階右折', ids:['ts_line','ts_pt']},
+  {key:'two_stage_likely', glyph:'est', label:'二段階右折', ids:['ts_line','ts_dir','ts_pt']},
   {key:'two_stage_required_sign', glyph:'req', label:'二段階右折 標識', ids:['ts_sign']},
   {key:'two_stage_forbidden', glyph:'no', label:'小回り（禁止）', ids:['ts_no']},
   {key:'moped_banned', glyph:'ban', label:'原付通行禁止', ids:['ban_line','ban_pt']},
@@ -610,8 +610,24 @@ function addLayers(){
   add({id:'ts_line',type:'line',source:'g',filter:['==',['get','layer'],'two_stage_likely_line'],
     minzoom:12,
     layout:{'line-cap':'round'},
-    paint:{'line-color':C.amber,'line-width':['interpolate',['linear'],['zoom'],11,2,17,9],
-           'line-opacity':.35}});
+    paint:{'line-color':C.amber,'line-width':['interpolate',['linear'],['zoom'],11,2,17,7],
+           'line-opacity':.3}});
+  /* ただの線では「どっちから入る話か」が読み取れないので、
+     交差点へ向かう矢印を線の上に並べる。線の向きが進入方向そのもの。 */
+  try{
+    if(!map.hasImage('gk_arrow_two'))
+      map.addImage('gk_arrow_two', makeArrow(C.amber,'rgba(0,0,0,.55)'), {pixelRatio:2});
+  }catch(e){}
+  add({id:'ts_dir',type:'symbol',source:'g',filter:['==',['get','layer'],'two_stage_likely_line'],
+    minzoom:13.5,
+    /* 進入路は中央値57mと短く、25%は43m未満。間隔を空けると矢印が1個も
+       乗らないので詰める。大きさも、走りながら向きが読める程度にする。 */
+    layout:{'symbol-placement':'line','symbol-spacing':32,
+            'icon-image':'gk_arrow_two',
+            'icon-size':['interpolate',['linear'],['zoom'],13.5,0.9,17,1.7],
+            'icon-rotation-alignment':'map','icon-padding':0,
+            'icon-allow-overlap':false},
+    paint:{'icon-opacity':1}});
   add({id:'ts_no',type:'circle',source:'g',filter:['==',['get','layer'],'two_stage_forbidden'],
     minzoom:12.5,
     paint:{'circle-radius':['interpolate',['linear'],['zoom'],12.5,3,14,5,17,9],
@@ -692,15 +708,42 @@ var results=$('#results');
 $('#searchForm').addEventListener('submit',function(e){
   e.preventDefault(); $('#q').blur(); search($('#q').value.trim());
 });
+/* 検索履歴。空欄のあいだだけ直近5件を出し、1文字目を入れたら消える。 */
+function histAll(){ try{ return JSON.parse(lsGet('gentuki.hist')||'[]'); }catch(e){ return []; } }
+function histAdd(name, x, y){
+  if(!name) return;
+  var a=histAll().filter(function(h){ return h.name!==name; });
+  a.unshift({name:name, x:x, y:y});
+  lsSet('gentuki.hist', JSON.stringify(a.slice(0,5)));
+}
+function showHistory(){
+  var a=histAll();
+  if(!a.length){ results.hidden=true; return; }
+  results.innerHTML='';
+  a.forEach(function(h){
+    var li=document.createElement('li');
+    li.tabIndex=0;
+    li.innerHTML='<b class="hist-mark">↺</b>'+escapeHtml(h.name)+'<span>最近の検索</span>';
+    li.addEventListener('click',function(){
+      results.hidden=true; $('#q').value=h.name; $('#q').blur();
+      setDestination([h.x,h.y], h.name);
+    });
+    results.appendChild(li);
+  });
+  results.hidden=false;
+}
 var searchTimer=null, searchSeq=0;
 $('#q').addEventListener('input',function(){
   var v=this.value.trim();
   clearTimeout(searchTimer);
+  if (!v){ showHistory(); return; }               // 消したら履歴に戻す
   if (v.length<2){ results.hidden=true; return; }
   searchTimer=setTimeout(function(){ search(v,true); }, 280);
 });
 $('#q').addEventListener('focus',function(){
-  if (this.value.trim().length>=2 && results.children.length) results.hidden=false;
+  var v=this.value.trim();
+  if (!v){ showHistory(); return; }
+  if (v.length>=2 && results.children.length) results.hidden=false;
 });
 function search(q, incremental){
   if(!q) return;
@@ -768,6 +811,7 @@ var destMarker=null, dest=null, destName='', routeData=null, altData=null, showi
 
 function setDestination(lngLat, name){
   dest=lngLat; destName=name||'選択した地点';
+  histAdd(name, lngLat[0], lngLat[1]);
   if(destMarker) destMarker.remove();
   var el=document.createElement('div');
   el.style.cssText='width:16px;height:16px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);'+
@@ -1570,9 +1614,10 @@ function navUpdate(pos){
   var thr = 45 + Math.min(acc, 40);
   if (p.dist > thr){
     nav.off++;
-    if (nav.off>=3 && Date.now()-nav.lastReroute > 12000){
+    /* 1本違う道に入ったらすぐ繋ぎ直す。2回続けて外れたら動く（1回だとGPSの
+       揺れで誤作動する）。間隔も12秒では曲がり角ひとつ分待たされるので5秒。 */
+    if (nav.off>=2 && Date.now()-nav.lastReroute > 5000){
       nav.off=0; nav.lastReroute=Date.now();
-      toast('ルートを再検索しています…',0);
       var hd = (lastHeading!=null)? Math.round(lastHeading) : null;
       /* 引き直したルートも原付が通れない区間を避ける。
          ここが素の valhalla のままだと、道を間違えた後だけ禁止区間に
@@ -1585,8 +1630,9 @@ function navUpdate(pos){
           return nav.cum[Math.min(m.shapeIndex!=null?m.shapeIndex:0, nav.cum.length-1)]; });
         nav.step=0; nav.said={}; nav.lastIdx=null;
         drawRoute(nav.r); renderRoute(nav.r,false); $('#route').hidden=true;
-        hideToast(); say('ルートを再検索しました。');
-      }).catch(function(){ hideToast(); toast('ルートを更新できませんでした',4000); });
+        /* 「再検索しました」とは言わない。案内はそのまま続き、経路だけが変わる。
+           次の曲がり角の案内は renderNav が普通に喋る。 */
+      }).catch(function(){ toast('ルートを更新できませんでした',4000); });
     }
   } else nav.off=0;
 
