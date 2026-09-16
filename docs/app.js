@@ -51,7 +51,7 @@ var LAYERS = [
   /* 歩行者用道路は原付が入れない場所そのもの（商店街・通学路が多い）。
      地図には描いていたのにこの一覧に無く、絞り込みにも件数にも出ていなかった。 */
   {key:'pedestrian_only', glyph:'ped', label:'歩行者用道路', ids:['ped_line','ped_line_t','ped_pt']},
-  {key:'no_entry_dir', glyph:'nod', label:'指定方向外進行禁止', ids:['nd_pt']},
+  {key:'no_entry_dir', glyph:'nod', label:'指定方向外進行禁止', ids:['nd_line','nd_pt']},
   {key:'oneway', glyph:'ow', label:'一方通行', ids:['ow_line'], off:true},
   {key:'expressway', glyph:'exp', label:'自動車専用道路', ids:['expw']}
 ];
@@ -417,6 +417,29 @@ setInterval(function(){
   if(stampActive() && map.getSource('g')) map.getSource('g').setData(DATA);
 }, 60000);
 
+var COMPASS=['北','北北東','北東','東北東','東','東南東','南東','南南東',
+             '南','南南西','南西','西南西','西','西北西','北西','北北西'];
+function compass(b){ return COMPASS[Math.round(((b%360)+360)%360/22.5)%16]; }
+
+/* 「その方向から入ると右折できない」の“その方向”が地図に出ていなかった。
+   二段階右折と同じように、進入してくる側へ短い線を引いて向きを示す。
+   線は配信データには持たせず、方位から作る（1本2点なので容量が増えない）。 */
+function addApproachLines(){
+  var add=[];
+  DATA.features.forEach(function(f){
+    var p=f.properties;
+    if(p.layer!=='no_entry_dir' || p.right || p.brg==null) return;
+    var c=f.geometry.coordinates;
+    var rad=(p.brg+180)*Math.PI/180, la=c[1]*Math.PI/180, L=45;
+    var from=[c[0]+Math.sin(rad)*L/(111320*Math.cos(la)), c[1]+Math.cos(rad)*L/110540];
+    add.push({type:'Feature',
+      geometry:{type:'LineString',coordinates:[[+from[0].toFixed(5),+from[1].toFixed(5)],c]},
+      properties:{layer:'no_entry_dir_line', city:p.city, brg:p.brg}});
+  });
+  DATA.features=DATA.features.concat(add);
+  return add.length;
+}
+
 function expand(doc){
   var titles=doc.titles||[];
   doc.features.forEach(function(f){
@@ -448,7 +471,7 @@ function expand(doc){
       var ok=(q.w||'').split('').map(function(ch){ return NM[ch]; }).filter(Boolean);
       p.title='指定方向外進行禁止';
       p.ok=ok; p.brg=q.b; p.right=!!q.g;
-      p.detail='この方向から進入したときは、'+(ok.join('・')||'指定された方向')+'しかできません。'
+      p.detail=compass(q.b)+'から進入したときは、'+(ok.join('・')||'指定された方向')+'しかできません。'
              + (q.g?'':'右折はできません。');
       p.src=SRC_REG; p.confidence='sign';
     } else if(lay==='pedestrian_only'){
@@ -492,7 +515,7 @@ ready.then(function(a){
     PTS.push(p);
     var k = gkey(p.x,p.y); (grid[k]||(grid[k]=[])).push(p);
   });
-  attachApproachBearings(); buildBanIndex(); forceJapaneseLabels(); boostNightLabels(); boostNightRoads(); fixOneway(); addNightPoi(); addLayers(); buildChips(); hideToast();
+  addApproachLines(); attachApproachBearings(); buildBanIndex(); forceJapaneseLabels(); boostNightLabels(); boostNightRoads(); fixOneway(); addNightPoi(); addLayers(); buildChips(); hideToast();
 }).catch(function(e){ console.error(e); toast('データを読み込めませんでした'); });
 
 var banGrid={};
@@ -657,7 +680,14 @@ function addLayers(){
     paint:{'line-color':C.blue,'line-width':['interpolate',['linear'],['zoom'],14,1.5,17,4],
            'line-opacity':.5}});
 
-  /* --- 指定方向外進行禁止。右折できない進入は濃く出す --- */
+  /* --- 指定方向外進行禁止。右折できない進入は濃く出し、入ってくる向きを線で示す --- */
+  add({id:'nd_line',type:'line',source:'g',filter:['==',['get','layer'],'no_entry_dir_line'],
+    minzoom:14,
+    layout:{'line-cap':'round'},
+    /* 原付通行禁止も赤い線なので、こちらは破線にして「道そのものの禁止」と
+       「その向きから入ったときの規制」を見分けられるようにする。 */
+    paint:{'line-color':C.danger,'line-width':['interpolate',['linear'],['zoom'],14,1.4,17,4],
+           'line-opacity':.55,'line-dasharray':[2,1.6]}});
   add({id:'nd_pt',type:'circle',source:'g',filter:['==',['get','layer'],'no_entry_dir'],
     minzoom:13.5,
     paint:{'circle-radius':['interpolate',['linear'],['zoom'],13.5,2.5,16,5,18,8],
