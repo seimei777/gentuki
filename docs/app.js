@@ -91,6 +91,52 @@ function boostNightLabels(){
   });
 }
 
+/* 夜の道路は背景 rgb(12,12,12) に対して highway_minor が #181818、
+   幹線の中身 highway_major_inner が hsl(0,0%,7%)。ほぼ背景と同じ色で、
+   しかも casing(縁)が rgba(60,60,60,.8) と中身より明るいので、
+   道が「線」ではなく薄い輪郭にしか見えない。
+   中身を明るく、縁を暗くして、道路の階層（高速>幹線>細街路）は保つ。 */
+var NIGHT_ROAD={
+  highway_motorway_inner:  '#6c6d75',
+  highway_motorway_subtle: '#3a3b41',
+  highway_motorway_casing: '#08080a',
+  highway_major_inner:     '#5b5c63',
+  highway_major_subtle:    '#404146',
+  highway_major_casing:    '#08080a',
+  highway_minor:           '#34353b',
+  highway_path:            '#26272b',
+  road_pier:               '#26272b'
+};
+function boostNightRoads(){
+  if (theme!=='night') return;
+  Object.keys(NIGHT_ROAD).forEach(function(id){
+    if(!map.getLayer(id)) return;
+    try{ map.setPaintProperty(id,'line-color',NIGHT_ROAD[id]); }catch(e){}
+  });
+  /* 一方通行の矢印。元からあるレイヤーはスプライトの rgb(112,106,106) の
+     細い矢印（不透明画素は21x21中80個）で、暗い地図では埋もれる。
+     SDFではないので色を変えられないため、文字で自前に描いて色を付ける。 */
+  ['road_oneway','road_oneway_opposite'].forEach(function(id){
+    if(map.getLayer(id)){ try{ map.setLayoutProperty(id,'visibility','none'); }catch(e){} }
+  });
+  if (!map.getSource('openmaptiles')) return;
+  [['gk_oneway', 1, '→'], ['gk_oneway_rev', -1, '←']].forEach(function(a){
+    if (map.getLayer(a[0])) return;
+    try{
+      map.addLayer({ id:a[0], type:'symbol', source:'openmaptiles',
+        'source-layer':'transportation', minzoom:15,
+        filter:['==',['get','oneway'],a[1]],
+        layout:{ 'symbol-placement':'line', 'symbol-spacing':150,
+                 'text-field':a[2], 'text-font':['Noto Sans Regular'],
+                 'text-size':['interpolate',['linear'],['zoom'],15,15,19,24],
+                 'text-rotation-alignment':'map', 'text-pitch-alignment':'map',
+                 'text-keep-upright':false, 'text-padding':2 },
+        paint:{ 'text-color':'#a8c6e6', 'text-halo-color':'rgba(0,0,0,0.9)',
+                'text-halo-width':1.3 }});
+    }catch(e){}
+  });
+}
+
 /* 夜のスタイルには poi レイヤーが1つも定義されておらず、店や施設の名前が
    まったく出ない（昼の liberty には poi_r1/r7/r20/transit の4つがある）。
    データ元もスプライトも同じなので、レイヤー定義だけを夜用に足す。 */
@@ -144,7 +190,7 @@ function setTheme(t){
   document.body.dataset.theme=t;
   map.setStyle(BASEMAP[t]);
   map.once('styledata', function(){       // MapLibre は style.load を発火しないので styledata を使う
-    forceJapaneseLabels(); boostNightLabels(); addNightPoi();
+    forceJapaneseLabels(); boostNightLabels(); boostNightRoads(); addNightPoi();
     if (DATA) addLayers();                // ソース・レイヤはスタイル差し替えで消えるので貼り直す
   });
 }
@@ -379,7 +425,7 @@ ready.then(function(a){
     PTS.push(p);
     var k = gkey(p.x,p.y); (grid[k]||(grid[k]=[])).push(p);
   });
-  buildBanIndex(); forceJapaneseLabels(); boostNightLabels(); addNightPoi(); addLayers(); buildChips(); hideToast();
+  buildBanIndex(); forceJapaneseLabels(); boostNightLabels(); boostNightRoads(); addNightPoi(); addLayers(); buildChips(); hideToast();
 }).catch(function(e){ console.error(e); toast('データを読み込めませんでした'); });
 
 var banGrid={};
@@ -818,6 +864,22 @@ function requestRoute(){
 /* Valhalla の motor_scooter は自動車専用道路は避けるが、
    公安委員会の二輪通行禁止（県警データ側）は知らない。
    終日禁止の区間と重なっていたら、その地点を除外して取り直す。 */
+/* ルートを引き、原付が通れない区間に当たるなら避けて引き直す。
+   通常の検索とナビ中の再検索で同じ扱いにするための共通処理。
+   大きく遠回りになるなら元のまま返し、警告で知らせる。 */
+function routeAvoiding(from, to, heading){
+  return valhalla(from, to, null, heading).then(function(r1){
+    var a1=analyse(r1);
+    if(!a1.banPts.length) return a1;
+    return valhalla(from, to, a1.banPts, heading).then(function(r2){
+      var a2=analyse(r2), tn=new Date();
+      function live(p){ return activeAt(p, tn)!==false; }
+      var after=a2.passBan.filter(live).length, before=a1.passBan.filter(live).length;
+      return (after<before && a2.km < a1.km*1.35) ? a2 : a1;   // 35%以上の遠回りは避けない
+    }).catch(function(){ return a1; });
+  });
+}
+
 function avoidBannedIfNeeded(){
   if (!routeData || !routeData.banPts || !routeData.banPts.length) return;
   var ex=routeData.banPts.slice(0,50);          // Valhalla の exclude_locations は上限50
@@ -1413,8 +1475,12 @@ function navUpdate(pos){
       nav.off=0; nav.lastReroute=Date.now();
       toast('ルートを再検索しています…',0);
       var hd = (lastHeading!=null)? Math.round(lastHeading) : null;
-      valhalla(c, dest, null, hd).then(function(nr){
-        nav.r = routeData = analyse(nr);
+      /* 引き直したルートも原付が通れない区間を避ける。
+         ここが素の valhalla のままだと、道を間違えた後だけ禁止区間に
+         案内されることになる。 */
+      routeAvoiding(c, dest, hd).then(function(na){
+        var nr=na;
+        nav.r = routeData = na;
         nav.cum = cumulative(nr.shape);
         nav.manAt = nr.maneuvers.map(function(m){
           return nav.cum[Math.min(m.shapeIndex!=null?m.shapeIndex:0, nav.cum.length-1)]; });
