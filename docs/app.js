@@ -1992,9 +1992,16 @@ map.on('rotate', updateCompass);
 map.on('pitch', updateCompass);
 $('#compass').addEventListener('click',function(){
   if (nav.on){
-    /* 進行方向に戻して、自分は引っ込む。戻す先が無くなるので出しておく意味がない。 */
-    nav.userBearing=false; nav.camHold=0;
-    queueCam(); updateCompass();
+    /* 進行方向に戻して、自分は引っ込む。
+       queueCam() 任せにしていたが、updateCam は追従が切れていると
+       即座に return する。地図を手で動かすと追従が切れるので、
+       「手で動かした後に押しても何も起きない」状態になっていた。
+       押したときはここで直接戻す。追従は切れたままにする
+       （見たい所を見ている最中に現在地へ引き戻されると困る）。 */
+    nav.userBearing=false;
+    nav.camHold=Date.now()+420;          // 直後のコンパス更新に潰されないように
+    map.easeTo({bearing:headingNow(lastSpeed), duration:350, essential:true});
+    updateCompass();
     return;
   }
   if (locMode===2) setLocMode(1);
