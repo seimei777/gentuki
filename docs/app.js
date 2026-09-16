@@ -1652,6 +1652,11 @@ function startNav(){
     padding:{top:0,bottom:Math.round(map.getContainer().clientHeight*0.5),left:0,right:0},
     duration:1200, essential:true });
   renderNav(nav.step, r.km*1000, nav.manAt[nav.step]||0);
+  /* 方角センサーが使えないと、止まっている間は地図が向きに追従できない */
+  setTimeout(function(){
+    if (nav.on && deviceHeading==null && lastHeading==null)
+      toast('端末の方角が取れていないため、止まっている間は地図が回りません。走り出すとGPSの進行方向で回ります',7000);
+  }, 3000);
   say('案内を開始します。' + (r.need.length? ('この先、二段階右折が'+r.need.length+'か所あります。') : ''));
 }
 function stopNav(){
@@ -1833,8 +1838,32 @@ function headingNow(speed){
 function onDeviceOrientation(e){
   var h = (e.webkitCompassHeading!=null) ? e.webkitCompassHeading
         : (e.absolute && e.alpha!=null ? (360 - e.alpha) : null);
-  if (h!=null && isFinite(h)){ deviceHeading = (h+360)%360; queuePuck(); }
+  if (h==null || !isFinite(h)) return;
+  h=(h+360)%360;
+  /* 生の値は細かく揺れる。そのまま地図を回すと画面が震えるので均す。 */
+  if (deviceHeading==null) deviceHeading=h;
+  else {
+    var d=((h-deviceHeading+540)%360)-180;
+    deviceHeading=(deviceHeading+d*0.25+360)%360;
+  }
+  queuePuck(); queueCam();
 }
+
+/* ナビ中の地図の向きを、コンパスからも回す。
+   これまで navUpdate の中だけで向きを決めていたが、そこはGPSの更新でしか
+   呼ばれない。止まっているとGPSがほとんど来ないので、スマホを回しても
+   画面が回らなかった。走行中(速度>2)はGPSの進行方向が優先なので触らない。 */
+var camRaf=0;
+function updateCam(){
+  camRaf=0;
+  if (!nav.on || !nav.follow || nav.userBearing) return;
+  if (lastSpeed!=null && lastSpeed>2) return;      // 走行中は navUpdate 側に任せる
+  if (deviceHeading==null) return;
+  var cur=map.getBearing(), d=((deviceHeading-cur+540)%360)-180;
+  if (Math.abs(d)<1.5) return;                     // 微動では回さない
+  map.easeTo({bearing:cur+d, duration:220, easing:function(t){return t;}, essential:true});
+}
+function queueCam(){ if (!camRaf) camRaf=requestAnimationFrame(updateCam); }
 
 /* 青いドットの扇の向き。走っていれば GPS の進行方向、止まっていれば端末のコンパス。
    止まっていると GPS の fix がほとんど来ないので、GPS 側だけで更新してはいけない。
