@@ -613,6 +613,64 @@ ready.then(function(){
 });
 
 
+
+/* ==================== 地図上の建物・店をタップして目的地にする ====================
+   背景地図（OpenFreeMap）のベクタータイルに poi レイヤが含まれていて、name:ja も入っている。
+   Google Places は「結果を Google の地図に表示すること」が条件なので使えないが、
+   そもそも自前の地図が POI を持っているので必要ない。 */
+var POI_LAYERS=['poi_r1','poi_r7','poi_r20','poi_transit'];
+var POI_JA={
+  fuel:'ガソリンスタンド', parking:'駐車場', motorcycle_parking:'バイク駐車場',
+  bicycle_parking:'駐輪場', convenience:'コンビニ', supermarket:'スーパー',
+  restaurant:'飲食店', cafe:'カフェ', fast_food:'ファストフード', bakery:'パン屋',
+  hospital:'病院', clinic:'クリニック', pharmacy:'薬局', bank:'銀行', atm:'ATM',
+  post_office:'郵便局', police:'交番・警察署', school:'学校', university:'大学',
+  library:'図書館', park:'公園', hotel:'ホテル', bus_stop:'バス停',
+  railway:'駅', subway:'駅', station:'駅', tram_stop:'停留所',
+  convenience_store:'コンビニ', department_store:'百貨店', mall:'ショッピングモール',
+  car_repair:'自動車整備', motorcycle:'バイク店', museum:'博物館', temple:'寺',
+  shinto:'神社', hairdresser:'美容室', laundry:'コインランドリー', toilets:'トイレ',
+  drinking_water:'水飲み場', shelter:'休憩所', viewpoint:'展望台'
+};
+function poiLabel(p){
+  return POI_JA[p.subclass] || POI_JA[p.class] || p.subclass || p.class || '地点';
+}
+function openPoiSheet(f, lngLat){
+  var pr=f.properties||{};
+  var named = pr['name:ja'] || pr.name || pr['name:latin'];
+  var name = named || poiLabel(pr);
+  sheetPt=[lngLat.lng, lngLat.lat];
+  var tag=$('#sTag'); tag.textContent='地図'; tag.style.color=C.route;
+  $('#sGlyph').innerHTML='';
+  $('#sTitle').textContent=name;
+  $('#sDetail').textContent = named ? poiLabel(pr) : '名称のない地点です。ここを目的地にできます。';
+  var rows=[];
+  if (me) rows.push(['現在地から', (function(){
+    var d=meters(me,[lngLat.lng,lngLat.lat]);
+    return d>=1000 ? (Math.round(d/100)/10)+' km' : d+' m';
+  })()]);
+  rows.push(['出典','OpenStreetMap（背景地図の地点データ）']);
+  $('#sMeta').innerHTML=rows.map(function(r){
+    return '<dt>'+escapeHtml(r[0])+'</dt><dd>'+escapeHtml(r[1])+'</dd>'; }).join('');
+  $('#sheet').hidden=false;
+}
+function existingLayers(ids){ return ids.filter(function(i){ return map.getLayer(i); }); }
+map.on('click', function(e){
+  if (nav.on) return;
+  var ours=existingLayers(['expw','ban_line','ban_pt','ts_line','ts_no','ts_pt','ts_sign','route_turn']);
+  if (ours.length && map.queryRenderedFeatures(e.point,{layers:ours}).length) return; // 規制の方を優先
+  var pad=10, box=[[e.point.x-pad,e.point.y-pad],[e.point.x+pad,e.point.y+pad]];
+  var poi=map.queryRenderedFeatures(box,{layers:existingLayers(POI_LAYERS)});
+  if (poi.length) openPoiSheet(poi[0], e.lngLat);
+});
+map.on('mousemove', function(e){
+  if (nav.on) return;
+  var ls=existingLayers(POI_LAYERS);
+  if (!ls.length) return;
+  var hit=map.queryRenderedFeatures(e.point,{layers:ls}).length;
+  if (hit) map.getCanvas().style.cursor='pointer';
+});
+
 /* ==================== ナビゲーション（ターンバイターン） ==================== */
 /* Valhalla の maneuver.type。日本は左側通行なので、交差する側＝右折 */
 var MTYPE_RIGHT={9:1,10:1,11:1}, MTYPE_LEFT={14:1,15:1,16:1};
