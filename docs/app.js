@@ -855,6 +855,71 @@ map.on('mousemove', function(e){
 });
 
 
+/* ==================== Supabase（報告の共有） ====================
+   端末に貯めるだけだと、走った人の確認がその人の中で終わってしまう。
+   集計だけを共有して、地図の確度を上げていく。
+   キーは publishable（公開前提）。RLS で insert しか通らず、生ログは誰も読めない。 */
+var SB = {
+  url: 'https://mqthgpyeakqdzjfkhxzx.supabase.co',
+  key: 'sb_publishable_J9I23hktgFkgb736aDMYGg_tMJxqjW7'  /* 公開前提のキー。RLS で insert しか通らない */
+};
+function sbOn(){ return !!(SB.url && SB.key); }
+
+function clientId(){
+  var id = lsGet('gentuki.cid');
+  if (!id){
+    id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+       : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c){
+           var r = Math.random()*16|0; return (c==='x'?r:(r&3|8)).toString(16);
+         });
+    lsSet('gentuki.cid', id);
+  }
+  return id;
+}
+function sbHeaders(extra){
+  var h = {apikey:SB.key, Authorization:'Bearer '+SB.key, 'Content-Type':'application/json'};
+  if (extra) for (var k in extra) h[k]=extra[k];
+  return h;
+}
+
+/* 書き込みは追記のみ（更新も削除も許していない）。押し直しは新しい行を積み、
+   集計ビューが (地点, 端末) ごとの最新だけを数える。
+   走行中は普通に圏外になる。送れなかった分は溜めて、繋がった時にまとめて送る。
+   失敗しても画面には出さない（記録自体は端末に残っているので実害がない）。 */
+function outbox(){ try { return JSON.parse(lsGet('gentuki.outbox')||'[]'); } catch(e){ return []; } }
+function outboxSet(a){ lsSet('gentuki.outbox', JSON.stringify(a.slice(-200))); }
+
+var sbBusy=false;
+function sbFlush(){
+  if (!sbOn() || sbBusy || !navigator.onLine) return;
+  var rows = outbox();
+  if (!rows.length) return;
+  sbBusy = true;
+  fetch(SB.url+'/rest/v1/spot_reports', {
+    method:'POST',
+    headers: sbHeaders({Prefer:'return=minimal'}),
+    body: JSON.stringify(rows)
+  }).then(function(r){
+    if (r.ok) outboxSet(outbox().slice(rows.length));  /* 送信中に足された分は残す */
+  }).catch(function(){}).then(function(){ sbBusy=false; });
+}
+window.addEventListener('online', sbFlush);
+
+/* 集計の取得。同じ地点を何度も開くのでセッション中はメモリに置く。 */
+var countCache = {};
+function sbCounts(uk, cb){
+  if (!sbOn() || !uk) return;
+  if (countCache[uk]) { cb(countCache[uk]); return; }
+  fetch(SB.url+'/rest/v1/spot_report_counts?select=ok_count,ng_count&uk=eq.'+encodeURIComponent(uk),
+        {headers: sbHeaders()})
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(j){
+      if (!j) return;
+      var c = j[0] || {ok_count:0, ng_count:0};
+      countCache[uk]=c; cb(c);
+    }).catch(function(){});
+}
+
 /* ==================== 現地確認のフィードバック ====================
    データが実際の交差点と合っているかは現地でしか分からない。走った人の記録を貯める。 */
 function reportsAll(){
@@ -866,6 +931,13 @@ function reportSet(uk, v, meta){
            road:(meta&&meta.road)||'', city:(meta&&meta.city)||''};
   lsSet('gentuki.reports', JSON.stringify(all));
   updateReportCount();
+  var q=outbox();
+  q.push({uk:uk, verdict:v, lanes:(meta&&meta.lanes)||null,
+          road:(meta&&meta.road)||'', city:(meta&&meta.city)||'',
+          client_id:clientId()});
+  outboxSet(q);
+  delete countCache[uk];          /* 自分の1件が増えるので取り直す */
+  sbFlush();
 }
 function updateReportCount(){
   var n=Object.keys(reportsAll()).length, el=$('#repCount');
@@ -881,9 +953,16 @@ function renderFeedback(p){
   box.dataset.meta=JSON.stringify({lanes:p.lanes, road:p.road, city:p.city});
   $('#fbYes').setAttribute('aria-pressed', String(cur && cur.v==='ok'));
   $('#fbNo').setAttribute('aria-pressed', String(cur && cur.v==='ng'));
-  $('#fbNote').textContent = cur
+  var base = cur
     ? (cur.v==='ok' ? '「実際に二段階右折だった」と記録済み' : '「違った」と記録済み')
     : '現地を見た人だけが分かる部分です。走ったあとで教えてください。';
+  $('#fbNote').textContent = base;
+  sbCounts(p.uk, function(c){
+    if (box.dataset.uk !== p.uk) return;   /* 待っている間に別の地点へ移っていたら捨てる */
+    var ok=c.ok_count||0, ng=c.ng_count||0;
+    if (!(ok+ng)) return;
+    $('#fbNote').textContent = base + '  ／ 現地報告 合ってた ' + ok + '・違った ' + ng;
+  });
 }
 function bindFb(id, v){
   $(id).addEventListener('click', function(){
@@ -1465,3 +1544,6 @@ updateCompass(); updatePitchBtn();
 makeDraggable($('#sheet'));
 makeDraggable($('#route'));
 toast('規制データを読み込み中…',0);
+
+/* 前回オフラインで送れなかった報告を、起動時に送る */
+sbFlush();
