@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;700;900&family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
-<link rel="stylesheet" href="style.css?v=20260917061610">
+<link rel="stylesheet" href="style.css?v=20260917062226">
 </head>
 <body>
 <div id="map"></div>
@@ -174,7 +174,7 @@
       <p>「原動機付自転車の右折方法（二段階）」の青い標識。この8市には3か所しかありません。</p></div></div>
     <div class="rulecard"><span class="gl" data-glyph="est"></span><div>
       <h4>車両通行帯が3以上＋信号あり なら二段階</h4>
-      <p><b>これが原則で、標識は要りません。</b>走りながら車線を数えるのは無理があるので、県警の規制データから該当する交差点を割り出して先に出しています。8市で632か所。これらは推定ではなく、<b>法令の条件そのものを満たしている地点</b>です。<br>
+      <p><b>これが原則で、標識は要りません。</b>走りながら車線を数えるのは無理があるので、県警の規制データから該当する交差点を割り出して先に出しています。8市で605か所。これらは推定ではなく、<b>法令の条件そのものを満たしている地点</b>です。<br>
       「二段階右折せよ」の標識が3か所しか無いのは、データ不足ではなく、<b>二段階右折が既定で、標識は例外を作るためのもの</b>だからです。だから逆に「小回り＝二段階右折するな」の標識が508か所もあります。</p></div></div>
     <div class="rulecard"><span class="gl" data-glyph="no"></span><div>
       <h4>「小回り」標識があれば、二段階してはいけない</h4>
@@ -183,7 +183,7 @@
 
     <h3>地図の見方</h3>
     <table class="facts">
-      <tr><th>オレンジの円</th><td class="n">632</td><td>二段階右折が必要な交差点</td></tr>
+      <tr><th>オレンジの円</th><td class="n">605</td><td>二段階右折が必要な交差点</td></tr>
       <tr><th>グレーの円</th><td class="n"></td><td>近くに「小回り」標識がある交差点。標識が優先なので<b>二段階右折をしてはいけません</b></td></tr>
       <tr><th>円から伸びる線</th><td class="n"></td><td>その交差点に<b>どの方向から入ったとき</b>の話かを示す進入路。横や逆から入るときは関係ありません</td></tr>
       <tr><th>青い円</th><td class="n">508</td><td>「小回り」標識</td></tr>
@@ -193,12 +193,14 @@
 
     <h3>この地図に入っているもの</h3>
     <table class="facts">
-      <tr><th>二段階右折</th><td class="n">632</td><td>車両通行帯3以上＋信号。標識が無くても義務</td></tr>
+      <tr><th>二段階右折</th><td class="n">605</td><td>車両通行帯3以上＋信号。標識が無くても義務</td></tr>
       <tr><th>二段階右折 標識</th><td class="n">3</td><td>標識による指定</td></tr>
       <tr><th>小回り 標識</th><td class="n">508</td><td>二段階右折をしてはいけない交差点</td></tr>
       <tr><th>原付通行禁止</th><td class="n">107</td><td>六甲山系の土日祝規制・夜間規制など</td></tr>
       <tr><th>自動車専用道路</th><td class="n">1753</td><td>阪神高速・第二神明・山麓バイパスなど</td></tr>
       <tr><th>歩行者用道路</th><td class="n">1107</td><td>原付を含む車両が進入できない道。通学路は時間帯指定が多い</td></tr>
+      <tr><th>指定方向外進行禁止</th><td class="n">2668</td><td>進入方向ごとに進める向きが決まっている交差点。うち2342は右折できない</td></tr>
+      <tr><th>一方通行</th><td class="n">3553</td><td>原付に効くものだけ。既定では非表示（背景地図にも矢印が出るため）</td></tr>
     </table>
 
     <h3>どうやって出したか</h3>
@@ -237,6 +239,6 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js"></script>
-<script src="app.js?v=20260917061610"></script>
+<script src="app.js?v=20260917062226"></script>
 </body>
 </html>

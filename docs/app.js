@@ -39,6 +39,8 @@ var GLYPH = {
   no:'<svg class="gl" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="'+C.blue+'"/><path d="M10 18V11.5h4" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 11.5l-2-2M14 11.5l-2 2" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round"/></svg>',
   ban:'<svg class="gl" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.2" fill="none" stroke="'+C.danger+'" stroke-width="3"/><path d="M6 17.5L18 6.5" stroke="'+C.danger+'" stroke-width="3" stroke-linecap="round"/></svg>',
   ped:'<svg class="gl" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#1f8a4c"/><circle cx="12" cy="6.4" r="1.9" fill="#fff"/><path d="M12 8.6c-1.7 0-2.6 1-2.6 2.3v3.2h1.3V19h2.6v-4.9h1.3v-3.2c0-1.3-.9-2.3-2.6-2.3z" fill="#fff"/></svg>',
+  nod:'<svg class="gl" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="'+C.danger+'" stroke-width="2.6"/><path d="M12 18V8" fill="none" stroke="'+C.danger+'" stroke-width="2.2" stroke-linecap="round"/><path d="M12 8l-2.6 2.8M12 8l2.6 2.8" fill="none" stroke="'+C.danger+'" stroke-width="2.2" stroke-linecap="round"/><path d="M15.5 15.5l4 4" stroke="'+C.danger+'" stroke-width="2.4" stroke-linecap="round"/></svg>',
+  ow:'<svg class="gl" viewBox="0 0 24 24"><rect x="2.5" y="8" width="19" height="8" rx="1.5" fill="none" stroke="'+C.blue+'" stroke-width="2"/><path d="M7 12h9" stroke="'+C.blue+'" stroke-width="2" stroke-linecap="round"/><path d="M16 12l-3-2.6M16 12l-3 2.6" stroke="'+C.blue+'" stroke-width="2" stroke-linecap="round"/></svg>',
   exp:'<svg class="gl" viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="2.5" fill="none" stroke="'+C.express+'" stroke-width="2"/><path d="M5.5 12h4M11 12h2.5M15.5 12h3" stroke="'+C.express+'" stroke-width="2" stroke-linecap="round"/></svg>'
 };
 var LAYERS = [
@@ -49,6 +51,8 @@ var LAYERS = [
   /* 歩行者用道路は原付が入れない場所そのもの（商店街・通学路が多い）。
      地図には描いていたのにこの一覧に無く、絞り込みにも件数にも出ていなかった。 */
   {key:'pedestrian_only', glyph:'ped', label:'歩行者用道路', ids:['ped_line','ped_line_t','ped_pt']},
+  {key:'no_entry_dir', glyph:'nod', label:'指定方向外進行禁止', ids:['nd_pt']},
+  {key:'oneway', glyph:'ow', label:'一方通行', ids:['ow_line'], off:true},
   {key:'expressway', glyph:'exp', label:'自動車専用道路', ids:['expw']}
 ];
 
@@ -249,7 +253,8 @@ var DATA=null, PTS=[], on={}, grid={}, GSTEP=0.004, lastRouteGeo=null;
 
 /* 配信用の圧縮データを、アプリが使う形に戻す */
 var LAYER_NAME=['two_stage_likely','two_stage_required_sign','two_stage_forbidden',
-                'moped_banned','expressway','two_stage_likely_line','pedestrian_only'];
+                'moped_banned','expressway','two_stage_likely_line','pedestrian_only',
+                'oneway','no_entry_dir'];
 var CITY_NAME=['神戸市','西宮市','宝塚市','尼崎市','伊丹市','芦屋市','川西市','池田市'];
 var SRC_REG='兵庫県警/JARTIC交通規制情報';
 var SRC_EST='兵庫県警・大阪府警/JARTIC交通規制情報（車両通行帯＋信号機から判定）';
@@ -433,6 +438,18 @@ function expand(doc){
     } else if(lay==='two_stage_forbidden'){
       p.title='二段階右折 禁止（小回り指定）';
       p.detail='「原動機付自転車の右折方法（小回り）」の標識。車線が多くても右折レーンから普通に右折する。';
+      p.src=SRC_REG; p.confidence='sign';
+    } else if(lay==='oneway'){
+      p.title='一方通行';
+      p.detail='線の向きにしか進めません。逆向きは通行できません。';
+      p.brg=q.b; p.src=SRC_REG; p.confidence='sign';
+    } else if(lay==='no_entry_dir'){
+      var NM={S:'直進',R:'右折',L:'左折',U:'Uターン'};
+      var ok=(q.w||'').split('').map(function(ch){ return NM[ch]; }).filter(Boolean);
+      p.title='指定方向外進行禁止';
+      p.ok=ok; p.brg=q.b; p.right=!!q.g;
+      p.detail='この方向から進入したときは、'+(ok.join('・')||'指定された方向')+'しかできません。'
+             + (q.g?'':'右折はできません。');
       p.src=SRC_REG; p.confidence='sign';
     } else if(lay==='pedestrian_only'){
       p.title=titles[q.t]||'歩行者用道路';
@@ -633,6 +650,22 @@ function addLayers(){
     paint:{'circle-radius':['interpolate',['linear'],['zoom'],11,6,17,13],'circle-color':C.amber,
            'circle-stroke-width':3,'circle-stroke-color':'#fff'}});
 
+  /* --- 一方通行（既定は非表示。本数が多く、背景地図にも矢印が出ている） --- */
+  add({id:'ow_line',type:'line',source:'g',filter:['==',['get','layer'],'oneway'],
+    minzoom:14,
+    layout:{'line-cap':'round'},
+    paint:{'line-color':C.blue,'line-width':['interpolate',['linear'],['zoom'],14,1.5,17,4],
+           'line-opacity':.5}});
+
+  /* --- 指定方向外進行禁止。右折できない進入は濃く出す --- */
+  add({id:'nd_pt',type:'circle',source:'g',filter:['==',['get','layer'],'no_entry_dir'],
+    minzoom:13.5,
+    paint:{'circle-radius':['interpolate',['linear'],['zoom'],13.5,2.5,16,5,18,8],
+           /* right は expand で真偽値にしているので 0 と比べても一致しない */
+           'circle-color':['case',['get','right'],C.grey,C.danger],
+           'circle-opacity':['case',['get','right'],.45,.9],
+           'circle-stroke-width':1.2,'circle-stroke-color':'#fff','circle-stroke-opacity':.65}});
+
   /* --- 現在地の精度円（青ドット本体は DOM マーカー） --- */
   if (!map.getLayer('me_acc')) map.addLayer({id:'me_acc',type:'circle',source:'me',
     paint:{'circle-color':C.route,'circle-opacity':.12,
@@ -652,7 +685,7 @@ function addLayers(){
 var clicksBound=false;
 function bindClicks(){
   if (clicksBound) return; clicksBound=true;
-  ['expw','ban_line','ban_pt','ped_line','ped_line_t','ped_pt','ts_line','ts_no','ts_pt','ts_sign','route_turn'].forEach(function(id){
+  ['expw','ban_line','ban_pt','ped_line','ped_line_t','ped_pt','ts_line','ts_no','ts_pt','ts_sign','ow_line','nd_pt','route_turn'].forEach(function(id){
     map.on('click',id,function(e){ openSheet(e.features[0].properties, e.lngLat); });
     map.on('mouseenter',id,function(){ map.getCanvas().style.cursor='pointer'; });
     map.on('mouseleave',id,function(){ map.getCanvas().style.cursor=''; });
@@ -664,9 +697,9 @@ function buildChips(){
   DATA.features.forEach(function(f){ var l=f.properties.layer; counts[l]=(counts[l]||0)+1; });
   var wrap=$('#chips');
   LAYERS.forEach(function(L){
-    on[L.key]=true;
+    on[L.key]= !L.off;                       // 一方通行だけ既定で消しておく
     var b=document.createElement('button');
-    b.className='chip'; b.type='button'; b.setAttribute('aria-pressed','true');
+    b.className='chip'; b.type='button'; b.setAttribute('aria-pressed',String(on[L.key]));
     b.innerHTML=GLYPH[L.glyph]+'<span>'+L.label+'</span><span class="n">'+(counts[L.key]||0)+'</span>';
     b.addEventListener('click',function(){
       on[L.key]=!on[L.key];
@@ -868,7 +901,7 @@ function parseTrip(trip){
 var RIGHT_TURN={9:1,10:1,11:1};   // slight right / right / sharp right
 function analyse(r){
   // ルート沿いの二段階右折（右折する交差点のみを「必要」とする）
-  var need=[], passBan=[], seen={};
+  var need=[], passBan=[], noRight=[], seen={};
   r.maneuvers.forEach(function(m,idx){
     if(!RIGHT_TURN[m.type] || !m.at) return;
     /* 交差点に入ってくる自分の向き。手前およそ40mから曲がる地点への方位。 */
@@ -891,6 +924,16 @@ function analyse(r){
       seen[best.p.i]=1;
       need.push({ mi:idx, at:m.at, pt:best.p, sign:best.p.p.layer==='two_stage_required_sign',
                   koma:best.p.p.koma });
+    }
+    /* 指定方向外進行禁止：その進入から右折できない交差点で右折していないか。
+       Valhalla は OSM の進行方向規制しか知らないので、県警データで裏を取る。 */
+    if(appr!=null){
+      nearPts(m.at[0],m.at[1]).forEach(function(p){
+        if(p.p.layer!=='no_entry_dir' || p.p.right) return;
+        if(meters(m.at,[p.x,p.y])>40) return;
+        if(p.p.brg==null || angDiff(appr, p.p.brg)>45) return;
+        if(!seen['nd'+p.i]){ seen['nd'+p.i]=1; noRight.push({mi:idx, p:p.p}); }
+      });
     }
   });
   // 原付通行禁止区間との「重なり」判定（並行する別の道を拾わないよう線分距離で見る）
@@ -965,7 +1008,7 @@ function analyse(r){
   });
   r.komaTurn=komaTurn;
 
-  r.need=need; r.passBan=passBan;
+  r.need=need; r.passBan=passBan; r.noRight=noRight;
   return r;
 }
 
@@ -1073,6 +1116,11 @@ function renderRoute(r, isAlt){
   } else {
     w.insertAdjacentHTML('beforeend',
       '<div class="wrow ok">'+GLYPH.est+'<div>ルート上に二段階右折が必要な右折はありません</div></div>');
+  }
+  if((r.noRight||[]).length){
+    w.insertAdjacentHTML('beforeend',
+      '<div class="wrow hot">'+GLYPH.nod+'<div><b>右折できない交差点で右折する経路です</b>（'+
+      r.noRight.length+'か所）。指定方向外進行禁止の標識があります。現地で必ず確認してください</div></div>');
   }
   var nw=new Date();
   var timed=r.passBan.filter(function(p){ return !p.always && activeAt(p,nw)!==false; });
@@ -1279,7 +1327,7 @@ function openPoiSheet(f, lngLat){
 function existingLayers(ids){ return ids.filter(function(i){ return map.getLayer(i); }); }
 map.on('click', function(e){
   if (nav.on) return;
-  var ours=existingLayers(['expw','ban_line','ban_pt','ped_line','ped_line_t','ped_pt','ts_line','ts_no','ts_pt','ts_sign','route_turn']);
+  var ours=existingLayers(['expw','ban_line','ban_pt','ped_line','ped_line_t','ped_pt','ts_line','ts_no','ts_pt','ts_sign','ow_line','nd_pt','route_turn']);
   if (ours.length && map.queryRenderedFeatures(e.point,{layers:ours}).length) return; // 規制の方を優先
 
   var pad=12, box=[[e.point.x-pad,e.point.y-pad],[e.point.x+pad,e.point.y+pad]];

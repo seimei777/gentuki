@@ -8,7 +8,8 @@ SRC = sys.argv[1] if len(sys.argv) > 1 else 'data/genki.geojson'
 DST = sys.argv[2] if len(sys.argv) > 2 else 'web/data/genki.min.geojson'
 
 L = {'two_stage_likely':0,'two_stage_required_sign':1,'two_stage_forbidden':2,
-     'moped_banned':3,'expressway':4,'two_stage_likely_line':5,'pedestrian_only':6}
+     'moped_banned':3,'expressway':4,'two_stage_likely_line':5,'pedestrian_only':6,
+     'oneway':7,'no_entry_dir':8}
 CITY = {'神戸市':0,'西宮市':1,'宝塚市':2,'尼崎市':3,'伊丹市':4,'芦屋市':5,'川西市':6,'池田市':7}
 
 def simplify(pts, tol):
@@ -60,9 +61,13 @@ for f in src['features']:
         q['a'] = 1 if p.get('always') else 0
     if lay == 'expressway':
         q['e'] = 1 if p.get('kind') == 'moped_no' else 0
+    if lay == 'no_entry_dir':
+        q['b'] = p['brg']                       # 進入方位
+        q['g'] = 1 if p.get('right') else 0      # 右折できるか
+        q['w'] = ''.join({'直進':'S','右折':'R','左折':'L','Uターン':'U'}[x] for x in p.get('ok',[]))
 
     if g['type'] == 'LineString':
-        tol = 20 if lay == 'expressway' else (12 if lay == 'moped_banned' else 6)
+        tol = 20 if lay == 'expressway' else (12 if lay == 'moped_banned' else (3 if lay == 'oneway' else 6))
         geom = {'type':'LineString','coordinates':rnd(simplify(g['coordinates'], tol))}
     else:
         geom = {'type':'Point','coordinates':[round(g['coordinates'][0],5), round(g['coordinates'][1],5)]}
