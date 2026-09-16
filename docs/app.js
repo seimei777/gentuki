@@ -774,17 +774,44 @@ document.addEventListener('visibilitychange',function(){
 $('#navStart').addEventListener('click', startNav);
 $('#navEnd').addEventListener('click', stopNav);
 $('#navRecenter').addEventListener('click', function(){ nav.follow=true; this.hidden=true; });
-map.on('dragstart', function(){ if (nav.on){ nav.follow=false; $('#navRecenter').hidden=false; } });
+map.on('dragstart', function(e){
+  if (nav.on && e && e.originalEvent){ nav.follow=false; $('#navRecenter').hidden=false; }
+});
 
 /* ---------------- 現在地・近接アラート ---------------- */
-var watch=null, meMarker=null, me=null, voiceOn=false, alerted={}, lastHeading=null;
+var watch=null, meMarker=null, me=null, voiceOn=false, alerted={}, lastHeading=null, lastSpeed=null;
 var alertBox=$('#alert');
 alertBox.querySelector('.a-close').addEventListener('click',function(){ alertBox.hidden=true; });
+
+/* 現在地ボタンは Google マップと同じ3段階で回す
+   0=追従なし / 1=追従（北固定） / 2=追従＋進行方向を上に向ける
+   地図をドラッグしたら 0 に戻る（位置の取得自体は止めない） */
+var locMode = 0;
+function setLocMode(m){
+  locMode = m;
+  var b=$('#locBtn');
+  b.setAttribute('aria-pressed', String(m>0));
+  b.dataset.mode = String(m);
+  b.querySelector('span').textContent = m===2 ? '進行方向' : (m===1 ? '追従中' : '現在地');
+  try { localStorage.setItem('gentuki.locMode', String(m)); } catch(e){}
+  if (m>0 && me) applyFollow(me, lastHeading, lastSpeed);
+}
+function applyFollow(c, heading, speed){
+  if (nav.on || locMode===0) return;
+  var z = map.getZoom();
+  if (z < 15) z = 16.5;                         // 追従に入ったら自動で寄る
+  if (locMode===2 && speed!=null){              // 進行方向モードは速度でズームを可変
+    z = speed>11 ? 15.8 : speed>5.5 ? 16.4 : 16.9;
+  }
+  var opt = { center:c, zoom:z, duration:900, easing:function(t){return t;}, essential:true };
+  if (locMode===2 && heading!=null) opt.bearing = heading;
+  if (locMode===1) opt.bearing = 0;
+  map.easeTo(opt);
+}
 
 function startLocate(cb){
   if(watch!=null){ if(cb) cb(); return; }
   if(!navigator.geolocation){ toast('この端末では現在地を取得できません'); return; }
-  $('#locBtn').setAttribute('aria-pressed','true');
   var first=true;
   watch=navigator.geolocation.watchPosition(function(pos){
     var c=[pos.coords.longitude,pos.coords.latitude];
@@ -800,7 +827,7 @@ function startLocate(cb){
       el.innerHTML='<span class="puck-cone"></span><span class="puck-ring"></span>';
       meMarker=new maplibregl.Marker({element:el,pitchAlignment:'map',rotationAlignment:'map'})
         .setLngLat(c).addTo(map);
-      if(!dest) map.easeTo({center:me,zoom:Math.max(map.getZoom(),15)});
+      if(!dest && locMode===0) map.easeTo({center:me,zoom:Math.max(map.getZoom(),15)});
     } else meMarker.setLngLat(c);
     // 方位：停止中の heading は暴れるので速度が出ているときだけ更新する
     var el2=meMarker.getElement();
@@ -813,6 +840,8 @@ function startLocate(cb){
     }
     // 精度が悪いときは灰色にして正直に伝える
     el2.classList.toggle('weak', acc>65);
+    lastSpeed=sp;
+    applyFollow(c, lastHeading, sp);
     if(first){ first=false; if(cb) cb(); }
     checkNear();
     navUpdate(pos);
@@ -823,13 +852,31 @@ function startLocate(cb){
 }
 function stopLocate(){
   if(watch!=null) navigator.geolocation.clearWatch(watch);
-  watch=null; me=null; alerted={}; lastHeading=null;
+  watch=null; me=null; alerted={}; lastHeading=null; lastSpeed=null; setLocMode(0);
   if (map.getSource('me')) map.getSource('me').setData({type:'FeatureCollection',features:[]});
   $('#locBtn').setAttribute('aria-pressed','false');
   if(meMarker){ meMarker.remove(); meMarker=null; }
   alertBox.hidden=true;
 }
-$('#locBtn').addEventListener('click',function(){ watch!=null ? stopLocate() : startLocate(); });
+$('#locBtn').addEventListener('click',function(){
+  if (watch==null){ startLocate(function(){ setLocMode(1); }); setLocMode(1); return; }
+  setLocMode(locMode===1 ? 2 : 1);
+});
+/* 長押しで現在地をオフ */
+(function(){
+  var t=null, btn=$('#locBtn');
+  btn.addEventListener('pointerdown',function(){ t=setTimeout(function(){ stopLocate(); toast('現在地をオフにしました'); },700); });
+  ['pointerup','pointerleave','pointercancel'].forEach(function(ev){
+    btn.addEventListener(ev,function(){ clearTimeout(t); });
+  });
+})();
+/* 地図を触ったら追従を解除（Googleマップと同じ） */
+map.on('dragstart',function(e){
+  if(!nav.on && locMode>0 && e && e.originalEvent) setLocMode(0);
+});
+map.on('rotatestart',function(e){
+  if(!nav.on && locMode===2 && e && e.originalEvent) setLocMode(1);
+});
 
 var KIND={
   two_stage_likely:{t:'二段階右折',k:'',say:'二段階右折の交差点です'},
@@ -893,6 +940,16 @@ $('#voiceBtn').addEventListener('click',function(){
   if(voiceOn) say('音声案内をオンにしました');
 });
 
+/* すでに位置情報を許可している端末では、開いた時点で自動的に追従を始める。
+   許可ダイアログは出さない（未許可ならボタンを押したときだけ出る） */
+(function autoLocate(){
+  if (!navigator.permissions || !navigator.permissions.query) return;
+  navigator.permissions.query({name:'geolocation'}).then(function(st){
+    if (st.state!=='granted') return;
+    var m = parseInt(localStorage.getItem('gentuki.locMode')||'1',10);
+    startLocate(function(){ setLocMode(m>0?m:1); });
+  }).catch(function(){});
+})();
 document.body.dataset.theme=theme;
 $('#themeBtn').setAttribute('aria-pressed',String(theme==='night'));
 toast('規制データを読み込み中…',0);

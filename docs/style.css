@@ -263,3 +263,10 @@ body[data-nav="1"] #alert{display:none}
 body[data-nav="1"] #navBand,
 body[data-nav="1"] #navBar{display:block}
 body[data-nav="1"] #navBar{display:flex}
+
+/* 現在地ボタンの3段階を見た目で区別する */
+.tool[data-mode="1"]{border-color:var(--route);color:var(--route);background:rgba(26,115,232,.14)}
+.tool[data-mode="1"] span{color:var(--route)}
+.tool[data-mode="2"]{border-color:var(--route);background:var(--route);color:#fff}
+.tool[data-mode="2"] span{color:#fff}
+.tool[data-mode="2"] svg{transform:rotate(-45deg)}
