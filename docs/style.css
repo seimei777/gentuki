@@ -2,7 +2,7 @@
   --ground:#0e1116; --surface:#161b22; --surface2:#1e242d; --line:#28303b;
   --ink:#e8edf4; --muted:#93a1b3; --muted2:#6d7b8d;
   --amber:#f5871f; --signblue:#2b7de0; --danger:#e8443c; --express:#b23a58;
-  --route:#38d39f;
+  --route:#1a73e8;
   --jp:"Zen Kaku Gothic New","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
   --num:"Barlow Semi Condensed","Zen Kaku Gothic New",system-ui,sans-serif;
   --sb:env(safe-area-inset-bottom,0px);
@@ -174,3 +174,45 @@ table.facts td.n{font-family:var(--num);font-variant-numeric:tabular-nums;color:
   #alert{left:auto;right:14px;width:340px}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ---- 現在地パック（Google Maps 風の4要素） ---- */
+.puck{width:22px;height:22px;position:relative;will-change:transform}
+.puck-ring{position:absolute;inset:0;border-radius:50%;background:#1a73e8;
+  border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35)}
+.puck.weak .puck-ring{background:#9aa0a6}
+.puck-cone{position:absolute;left:50%;top:50%;width:64px;height:64px;margin:-32px 0 0 -32px;
+  border-radius:50%;opacity:0;transition:opacity .2s;
+  background:conic-gradient(from calc(var(--hd,0deg) - 22deg),
+    rgba(26,115,232,.45) 0deg, rgba(26,115,232,0) 44deg, rgba(26,115,232,0) 360deg);
+  -webkit-mask:radial-gradient(circle,#000 10px,#000 30px,transparent 31px);
+  mask:radial-gradient(circle,#000 10px,#000 30px,transparent 31px)}
+.puck.has-hd .puck-cone{opacity:1}
+.puck.weak .puck-cone{opacity:0}
+
+/* ---- 昼テーマ（ライトの背景地図に合わせてUIも明るくする） ---- */
+body[data-theme="day"]{
+  --ground:#f5f3f0; --surface:#ffffff; --surface2:#f1f3f4; --line:#dadce0;
+  --ink:#202124; --muted:#5f6368; --muted2:#80868b;
+  --route:#1a73e8; --danger:#ea4335; --express:#b31412; --signblue:#1a73e8;
+}
+body[data-theme="day"] .chip,
+body[data-theme="day"] .tool,
+body[data-theme="day"] #q{background:rgba(255,255,255,.96);
+  box-shadow:0 1px 3px rgba(60,64,67,.24)}
+body[data-theme="day"] #bar{background:linear-gradient(180deg,rgba(245,243,240,.97) 55%,rgba(245,243,240,0))}
+body[data-theme="day"] #toast{box-shadow:0 2px 8px rgba(60,64,67,.3)}
+body[data-theme="day"] .maplibregl-ctrl-attrib{background:rgba(255,255,255,.78)!important}
+body[data-theme="day"] #route,
+body[data-theme="day"] #sheet{box-shadow:0 -2px 12px rgba(60,64,67,.2)}
+body[data-theme="day"] .r-sum b{color:#1a73e8}
+body[data-theme="day"] .wrow.hot{background:#fce8e6;border-color:#f5c6c2;color:#a50e0e}
+body[data-theme="day"] .caution p{color:#a50e0e}
+body[data-theme="day"] .doc p,body[data-theme="day"] .doc li,
+body[data-theme="day"] table.facts td{color:#3c4043}
+body[data-theme="day"] #info{background:rgba(255,255,255,.96)}
+body[data-theme="day"] .r-steps li.two{color:#b35309}
+body[data-theme="day"] .r-steps li.two .d{color:#b35309}
+
+/* ルートの色をGoogle系に寄せたのでサマリ数値も合わせる */
+.r-sum b{color:var(--route)}
+#sHere{background:var(--route);border-color:var(--route);color:#fff}

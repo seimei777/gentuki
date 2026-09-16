@@ -60,6 +60,10 @@
 </div>
 
 <div id="tools">
+  <button class="tool" id="themeBtn" aria-pressed="false" aria-label="昼夜の切替">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20.5 14.5A8.5 8.5 0 019.5 3.5a8.5 8.5 0 1011 11z"/></svg>
+    <span>昼夜</span>
+  </button>
   <button class="tool" id="voiceBtn" aria-pressed="false" aria-label="音声案内">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9.5v5h3.2L12 18.5v-13L7.2 9.5H4z" stroke-linejoin="round"/><path d="M15.5 9.2a4 4 0 010 5.6"/><path d="M18 6.8a7.5 7.5 0 010 10.4"/></svg>
     <span>音声</span>
@@ -133,10 +137,16 @@
 
     <h3>出典</h3>
     <p class="src">
-      交通規制情報：兵庫県警察／公益財団法人日本道路交通情報センター（JARTIC）オープンデータ 2026年7月版<br>
-      背景地図：国土地理院（地理院タイル 淡色地図）<br>
-      道路データ・経路探索：© OpenStreetMap contributors（ODbL）／ Valhalla（FOSSGIS e.V. 提供の公開インスタンス）<br>
-      地点検索：国土地理院 住所検索API ／ Nominatim（OpenStreetMap Foundation）
+      <b>交通規制情報</b>：「交通規制情報」（公益財団法人日本道路交通情報センター）<br>
+      https://www.jartic.or.jp/service/opendata/ を<b>加工して作成</b>（2026年7月版データ）<br><br>
+      <b>背景地図</b>：OpenFreeMap © OpenMapTiles<br>
+      <b>道路データ</b>：© OpenStreetMap contributors（ODbL）<br>
+      https://www.openstreetmap.org/copyright<br>
+      <b>経路探索</b>：Valhalla（FOSSGIS e.V. の公開インスタンス）<br>
+      <b>地点検索</b>：国土地理院 住所検索API ／ Nominatim（OpenStreetMap Foundation）<br>
+      <b>行政区域</b>：Linked Open Addresses Japan<br><br>
+      このサービスは公益財団法人日本道路交通情報センター、国土地理院、
+      OpenStreetMap Foundation のいずれとも無関係の個人制作物です。
     </p>
     <button class="closebtn" id="iClose">閉じる</button>
   </article>
