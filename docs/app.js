@@ -1652,8 +1652,7 @@ function startNav(){
   map.easeTo({ center:me, zoom:17.2,
     bearing:(nav.userBearing? map.getBearing() : headingNow(lastSpeed)),
     pitch:(nav.userPitch!=null?nav.userPitch:60),
-    padding:{top:0,bottom:Math.round(map.getContainer().clientHeight*0.5),left:0,right:0},
-    duration:camMs, essential:true });
+    padding:navPadding(), duration:camMs, essential:true });
   renderNav(nav.step, r.km*1000, nav.manAt[nav.step]||0);
   /* 方角センサーが使えないと、止まっている間は地図が向きに追従できない */
   setTimeout(function(){
@@ -1812,8 +1811,7 @@ $('#navRecenter').addEventListener('click', function(){
   if (me){                                  // 開始時と同じ寄り方で戻す
     nav.camHold=Date.now()+950;
     map.easeTo({ center:me, zoom:17.2, bearing:headingNow(lastSpeed), pitch:60,
-      padding:{top:0,bottom:Math.round(map.getContainer().clientHeight*0.5),left:0,right:0},
-      duration:800, essential:true });
+      padding:navPadding(), duration:800, essential:true });
   }
 });
 map.on('dragstart', function(e){
@@ -1867,6 +1865,17 @@ function onDeviceOrientation(e){
    打ち消されて何も起きないように見える（2Dを押しても傾きが戻らない、
    方位磁針を押しても北を向かない、という症状がこれ）。
    ボタンはモードを変えるだけにして、反映はこの関数に集める。 */
+/* 現在地を置く位置。進む方向は画面の上なので、自分は下寄りにいるべき。
+   padding は「その辺を使わない」指定なので、下に入れると中心が上半分の
+   真ん中＝画面の1/4あたりに来てしまう。入れるのは上側。
+   下は案内バーの高さぶんだけ空けて、バーに重ならないようにする。 */
+function navPadding(){
+  var H=map.getContainer().clientHeight;
+  var bar=parseInt(getComputedStyle(document.documentElement)
+            .getPropertyValue('--navh')) || 0;
+  return {top:Math.round(H*0.42), bottom:bar, left:0, right:0};
+}
+
 var camRaf=0;
 function navZoom(){
   if (nav.userZoom!=null) return nav.userZoom;
@@ -1890,7 +1899,7 @@ function updateCam(){
   var c=map.getCenter(), dc=me? meters(me,[c.lng,c.lat]) : 0;
   if (db<1.5 && dp<0.8 && dz<0.05 && dc<5) return;  // 微動では動かさない
   map.easeTo({ center: me||c, zoom:z, bearing:b, pitch:p,
-    padding:{top:0,bottom:Math.round(map.getContainer().clientHeight*0.5),left:0,right:0},
+    padding:navPadding(),
     duration:260, easing:function(t){return t;}, essential:true });
 }
 function queueCam(){ if (!camRaf) camRaf=requestAnimationFrame(updateCam); }
