@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0e1116">
+<title>げんつきマップ ｜ 神戸・西宮・宝塚の原付ルート</title>
+<meta name="description" content="原付一種（50cc）で走れるルートを出し、二段階右折の交差点と通行禁止の道を手前で知らせる地図。神戸市・西宮市・宝塚市。">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;700;900&family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="map"></div>
+
+<header id="bar">
+  <h1>げんつき<em>マップ</em></h1>
+  <span class="where">神戸・西宮・宝塚／原付一種</span>
+  <button id="infoBtn" class="iconbtn" aria-label="ルールと出典">i</button>
+</header>
+
+<div id="searchWrap">
+  <form id="searchForm" autocomplete="off">
+    <input id="q" type="search" placeholder="目的地を検索（例：三宮駅、西宮市役所）" aria-label="目的地">
+    <button type="submit" id="goBtn" aria-label="検索">検索</button>
+  </form>
+  <ul id="results" hidden></ul>
+</div>
+
+<nav id="chips" aria-label="表示する規制"></nav>
+
+<div id="route" hidden>
+  <div class="grip"></div>
+  <div class="r-head">
+    <div>
+      <div class="r-dest" id="rDest"></div>
+      <div class="r-sum"><b id="rDist"></b><span id="rTime"></span></div>
+    </div>
+    <button id="rClose" class="iconbtn" aria-label="ルートを消す">×</button>
+  </div>
+
+  <div class="r-warn" id="rWarn"></div>
+
+  <label class="r-toggle">
+    <input type="checkbox" id="avoidChk">
+    <span>二段階右折をできるだけ避ける</span>
+    <em id="avoidNote"></em>
+  </label>
+
+  <ol class="r-steps" id="rSteps"></ol>
+</div>
+
+<div id="alert" hidden role="status">
+  <div class="a-kind"></div>
+  <div class="a-dist"></div>
+  <div class="a-note"></div>
+  <button class="a-close" type="button">閉じる</button>
+</div>
+
+<div id="tools">
+  <button class="tool" id="voiceBtn" aria-pressed="false" aria-label="音声案内">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9.5v5h3.2L12 18.5v-13L7.2 9.5H4z" stroke-linejoin="round"/><path d="M15.5 9.2a4 4 0 010 5.6"/><path d="M18 6.8a7.5 7.5 0 010 10.4"/></svg>
+    <span>音声</span>
+  </button>
+  <button class="tool" id="locBtn" aria-pressed="false" aria-label="現在地">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+    <span>現在地</span>
+  </button>
+</div>
+
+<div id="toast" hidden></div>
+
+<section id="sheet" hidden aria-live="polite">
+  <div class="grip"></div>
+  <div class="s-head">
+    <div id="sGlyph"></div>
+    <div>
+      <div class="s-tag" id="sTag"></div>
+      <h2 class="s-title" id="sTitle"></h2>
+    </div>
+  </div>
+  <p class="s-detail" id="sDetail"></p>
+  <dl class="s-meta" id="sMeta"></dl>
+  <div class="s-actions">
+    <button id="sHere" class="ghost">ここへのルート</button>
+    <button id="sClose" class="ghost">閉じる</button>
+  </div>
+</section>
+
+<div id="info" hidden>
+  <article class="doc">
+    <h2>原付一種のための地図</h2>
+    <p class="lead">50cc以下の白ナンバーだけが持つ縛り——<b>二段階右折</b>と<b>入れない道路</b>——を織り込んでルートを出し、走っている間は手前で知らせます。対象は神戸市・西宮市・宝塚市。</p>
+
+    <h3>ルートの出し方</h3>
+    <p>目的地を検索するか、地図を長押しすると、そこまでの原付ルートを出します。ルート計算は原付相当のプロファイルを使うので、<b>阪神高速・第二神明・山麓バイパス・六甲北有料道路のような自動車専用道路は最初から通りません</b>。</p>
+    <p>ルートが決まると、その道中にある二段階右折の交差点を数えて先頭に出します。「二段階右折をできるだけ避ける」を入れると、右折が必要な交差点を外して計算し直し、遠回りが許容範囲なら差し替えます。</p>
+
+    <h3>二段階右折の条件</h3>
+    <div class="rulecard"><span class="gl" data-glyph="req"></span><div>
+      <h4>標識があれば、車線数に関係なく二段階</h4>
+      <p>「原動機付自転車の右折方法（二段階）」の青い標識。この3市には3か所しかありません。</p></div></div>
+    <div class="rulecard"><span class="gl" data-glyph="est"></span><div>
+      <h4>車両通行帯が3以上＋信号あり なら二段階</h4>
+      <p>標識が無くても法令上こうなります。走りながら車線を数えるのは無理があるので、規制データから計算して先に出しています。</p></div></div>
+    <div class="rulecard"><span class="gl" data-glyph="no"></span><div>
+      <h4>「小回り」標識があれば、二段階してはいけない</h4>
+      <p>3車線以上でもこの標識が優先。3市で346か所。右折レーンから普通に曲がります。</p></div></div>
+    <div class="caution"><p>間違えると交差点右左折方法違反。反則金3,000円・違反点数1点。</p></div>
+
+    <h3>この地図に入っているもの</h3>
+    <table class="facts">
+      <tr><th>二段階右折（推定）</th><td class="n">477</td><td>片側3車線以上の信号交差点への進入路</td></tr>
+      <tr><th>二段階右折 標識</th><td class="n">3</td><td>標識による指定</td></tr>
+      <tr><th>小回り 標識</th><td class="n">346</td><td>二段階右折をしてはいけない交差点</td></tr>
+      <tr><th>原付通行禁止</th><td class="n">86</td><td>六甲山系の土日祝規制・夜間規制など</td></tr>
+      <tr><th>自動車専用道路</th><td class="n">1527</td><td>阪神高速・第二神明・山麓バイパスなど</td></tr>
+    </table>
+
+    <h3>どうやって出したか</h3>
+    <p>兵庫県警が公開している交通規制データ（全県11万6939件）に、判定に必要な3つがすべて入っていました。<b>標識そのもの</b>（二段階／小回り）、<b>交差点ごとの車両通行帯数</b>、<b>信号機の位置</b>です。通行帯3以上の進入路から80m以内に信号機があるものを二段階右折と判定し、45m以内に小回り標識があるものには注記を付けています（消すと「不要」と誤って伝わるため）。</p>
+
+    <h3>この地図が間違えうるところ</h3>
+    <ul>
+      <li>通行帯数が交差点手前の実際の車線数と一致しない場合がある</li>
+      <li>小回り標識が一部の進入路だけに立っている交差点で、他の進入路にも注記が付く</li>
+      <li>ルート計算は OpenStreetMap の道路属性に基づくため、<b>時間帯限定の規制（六甲山系の土日祝の二輪通行止めなど）は考慮されません</b>。赤い区間がルートに重なったら警告を出しますが、最終判断は現地の標識で</li>
+      <li>規制データは2026年7月時点。規制は変わる</li>
+    </ul>
+    <div class="caution"><p><b>現地の標識・信号・警察官の指示が常に優先されます。</b>走行中のスマートフォン操作は道路交通法違反です。停めてから見るか、音声案内を使ってください。</p></div>
+
+    <h3>出典</h3>
+    <p class="src">
+      交通規制情報：兵庫県警察／公益財団法人日本道路交通情報センター（JARTIC）オープンデータ 2026年7月版<br>
+      背景地図：国土地理院（地理院タイル 淡色地図）<br>
+      道路データ・経路探索：© OpenStreetMap contributors（ODbL）／ Valhalla（FOSSGIS e.V. 提供の公開インスタンス）<br>
+      地点検索：国土地理院 住所検索API ／ Nominatim（OpenStreetMap Foundation）
+    </p>
+    <button class="closebtn" id="iClose">閉じる</button>
+  </article>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,517 @@
+<title>げんつきマップ</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;700;900&family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
+<style>
+:root{
+  --ground:#0e1116; --surface:#161b22; --surface2:#1e242d; --line:#28303b;
+  --ink:#e8edf4; --muted:#93a1b3; --muted2:#6d7b8d;
+  --amber:#f5871f; --amber-dim:#8a5316;
+  --signblue:#2b7de0; --danger:#e8443c; --express:#b23a58;
+  --jp:"Zen Kaku Gothic New","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
+  --num:"Barlow Semi Condensed","Zen Kaku Gothic New",system-ui,sans-serif;
+  --sb:env(safe-area-inset-bottom,0px);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--jp);
+  height:100dvh;overflow:hidden;-webkit-text-size-adjust:100%;overscroll-behavior:none}
+button{font-family:inherit}
+:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+
+/* maplibre minimum (its stylesheet cannot be loaded here) */
+.maplibregl-map{position:relative;overflow:hidden}
+.maplibregl-canvas-container,.maplibregl-canvas{position:absolute;top:0;left:0}
+.maplibregl-canvas-container.maplibregl-interactive{cursor:grab}
+.maplibregl-canvas-container.maplibregl-interactive:active{cursor:grabbing}
+.maplibregl-marker{position:absolute;top:0;left:0;will-change:transform}
+.maplibregl-ctrl-attrib,.maplibregl-control-container{display:none}
+
+#map{position:fixed;inset:0;background:var(--ground)}
+
+#bar{position:fixed;top:0;left:0;right:0;z-index:5;display:flex;align-items:center;gap:10px;
+  padding:max(12px,env(safe-area-inset-top)) 14px 22px;
+  background:linear-gradient(180deg,rgba(14,17,22,.95) 40%,rgba(14,17,22,0))}
+#bar h1{margin:0;font-size:19px;font-weight:900;letter-spacing:.01em;line-height:1}
+#bar h1 em{font-style:normal;color:var(--amber)}
+#bar .where{font-size:11px;color:var(--muted2);font-weight:700;letter-spacing:.06em}
+#bar button{margin-left:auto;width:34px;height:34px;flex:0 0 auto;border-radius:50%;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink);
+  font-size:15px;font-weight:900;cursor:pointer}
+
+#chips{position:fixed;z-index:5;top:58px;left:0;right:0;display:flex;gap:7px;
+  padding:0 12px 6px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+#chips::-webkit-scrollbar{display:none}
+.chip{flex:0 0 auto;display:flex;align-items:center;gap:7px;white-space:nowrap;cursor:pointer;
+  padding:7px 12px 7px 9px;border-radius:999px;border:1px solid var(--line);
+  background:rgba(22,27,34,.92);color:var(--muted);font-size:12.5px;font-weight:700;
+  backdrop-filter:blur(8px)}
+.chip[aria-pressed="true"]{color:var(--ink);border-color:#3c4756;background:rgba(30,36,45,.95)}
+.chip[aria-pressed="false"] .gl{opacity:.3}
+.chip .n{font-family:var(--num);font-weight:600;font-size:12px;color:var(--muted2);
+  font-variant-numeric:tabular-nums}
+.gl{width:16px;height:16px;flex:0 0 auto;display:block}
+
+#stat{position:fixed;z-index:4;left:12px;bottom:calc(14px + var(--sb));
+  font-family:var(--num);font-size:11px;font-weight:600;letter-spacing:.04em;
+  color:var(--muted2);background:rgba(14,17,22,.8);padding:5px 9px;border-radius:6px;
+  border:1px solid var(--line);max-width:calc(100vw - 110px)}
+
+#tools{position:fixed;z-index:5;right:12px;bottom:calc(14px + var(--sb));display:grid;gap:8px}
+.tool{width:52px;height:52px;border-radius:15px;border:1px solid var(--line);
+  background:rgba(22,27,34,.95);color:var(--ink);cursor:pointer;
+  display:grid;place-items:center;gap:2px;backdrop-filter:blur(8px)}
+.tool span{font-size:9px;font-weight:700;color:var(--muted2);letter-spacing:.04em}
+.tool[aria-pressed="true"]{border-color:var(--amber);background:rgba(245,135,31,.14)}
+.tool[aria-pressed="true"] span{color:var(--amber)}
+.tool svg{width:20px;height:20px}
+
+.mk{font-family:var(--jp);font-size:10.5px;font-weight:700;color:#9fb0c4;
+  text-shadow:0 0 4px #0e1116,0 0 8px #0e1116;white-space:nowrap;pointer-events:none;
+  transform:translate(6px,-50%)}
+.mk::before{content:"";display:inline-block;width:4px;height:4px;border-radius:50%;
+  background:#4d5b6c;margin-right:5px;vertical-align:middle;transform:translateX(-6px)}
+
+#alert{position:fixed;z-index:8;left:12px;right:12px;bottom:calc(14px + var(--sb));
+  background:var(--amber);color:#1a1004;border-radius:18px;padding:16px 18px 13px;
+  box-shadow:0 18px 44px rgba(0,0,0,.55)}
+#alert[data-kind="no"]{background:var(--signblue);color:#05142a}
+#alert[data-kind="ban"]{background:var(--danger);color:#2a0705}
+.a-kind{font-size:22px;font-weight:900;line-height:1.2}
+.a-dist{font-family:var(--num);font-size:44px;font-weight:700;line-height:.95;margin-top:2px;
+  font-variant-numeric:tabular-nums}
+.a-note{font-size:12.5px;font-weight:700;margin-top:6px;opacity:.82;line-height:1.5}
+.a-close{margin-top:10px;border:0;background:rgba(0,0,0,.16);color:inherit;font-weight:800;
+  font-size:12px;padding:8px 15px;border-radius:999px;cursor:pointer;font-family:var(--jp)}
+
+#sheet{position:fixed;z-index:9;left:0;right:0;bottom:0;background:var(--surface);
+  border-top:1px solid var(--line);border-radius:20px 20px 0 0;
+  padding:10px 18px calc(18px + var(--sb));box-shadow:0 -18px 50px rgba(0,0,0,.55);
+  max-height:72dvh;overflow:auto}
+.grip{width:40px;height:4px;border-radius:2px;background:var(--line);margin:0 auto 14px}
+.s-head{display:flex;align-items:flex-start;gap:12px}
+.s-head .gl{width:30px;height:30px;margin-top:2px}
+.s-tag{display:inline-block;font-family:var(--num);font-size:11px;font-weight:700;
+  letter-spacing:.08em;padding:2px 8px;border-radius:4px;border:1px solid currentColor;margin-bottom:6px}
+.s-title{margin:0;font-size:17px;font-weight:900;line-height:1.4;text-wrap:balance}
+.s-detail{margin:10px 0 0;font-size:13px;line-height:1.75;color:var(--muted)}
+.s-meta{margin:14px 0 0;display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:12px}
+.s-meta dt{color:var(--muted2);font-weight:700}
+.s-meta dd{margin:0;color:var(--muted);line-height:1.6}
+.verify{margin:16px 0 0;padding:14px;border-radius:12px;background:var(--surface2);
+  border:1px solid var(--line)}
+.verify p{margin:0 0 10px;font-size:12px;color:var(--muted);line-height:1.6}
+.vrow{display:flex;gap:8px}
+.vrow button{flex:1;padding:11px 8px;border-radius:10px;border:1px solid var(--line);
+  background:var(--surface);color:var(--ink);font-size:12.5px;font-weight:700;cursor:pointer}
+.vrow button:hover{border-color:#47535f}
+.vrow button[disabled]{opacity:.45;cursor:default}
+.vtally{margin:10px 0 0;font-family:var(--num);font-size:12px;color:var(--muted2);
+  font-variant-numeric:tabular-nums}
+.closebtn{margin-top:16px;width:100%;padding:13px;border-radius:12px;border:1px solid var(--line);
+  background:var(--surface2);color:var(--ink);font-weight:700;font-size:13px;cursor:pointer}
+
+#info{position:fixed;inset:0;z-index:10;background:rgba(10,12,16,.93);overflow:auto;display:none}
+#info[data-open="1"]{display:block}
+.doc{max-width:62ch;margin:0 auto;padding-block:32px calc(48px + var(--sb));padding-inline:20px}
+.doc h2{margin:0 0 6px;font-size:23px;font-weight:900;letter-spacing:.01em;text-wrap:balance}
+.doc .lead{margin:0 0 30px;font-size:13.5px;line-height:1.85;color:var(--muted)}
+.doc h3{margin:30px 0 10px;font-size:12px;font-weight:700;letter-spacing:.14em;
+  color:var(--amber);text-transform:none}
+.doc p{margin:0 0 12px;font-size:13.5px;line-height:1.9;color:#c3cedb}
+.doc ul{margin:0 0 12px;padding-left:0;list-style:none}
+.doc li{font-size:13.5px;line-height:1.85;color:#c3cedb;margin:0 0 9px;
+  padding-left:16px;position:relative}
+.doc li::before{content:"";position:absolute;left:0;top:.72em;width:5px;height:1px;background:var(--muted2)}
+.doc b{color:var(--ink)}
+.rulecard{border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin:0 0 12px;
+  background:var(--surface);display:flex;gap:14px;align-items:flex-start}
+.rulecard .gl{width:34px;height:34px;margin-top:1px}
+.rulecard h4{margin:0 0 4px;font-size:14px;font-weight:900}
+.rulecard p{margin:0;font-size:12.5px;line-height:1.7;color:var(--muted)}
+table.facts{width:100%;border-collapse:collapse;margin:0 0 14px;font-size:12.5px}
+table.facts th,table.facts td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);
+  vertical-align:top;line-height:1.6}
+table.facts th{color:var(--muted2);font-weight:700;font-size:11px;letter-spacing:.06em;white-space:nowrap}
+table.facts td{color:#c3cedb}
+table.facts td.n{font-family:var(--num);font-variant-numeric:tabular-nums;color:var(--ink);
+  font-weight:600;white-space:nowrap}
+.caution{border-left:2px solid var(--danger);padding:2px 0 2px 14px;margin:0 0 14px}
+.caution p{color:#f2b4ae}
+.src{font-size:11.5px;line-height:1.8;color:var(--muted2)}
+@media (min-width:760px){
+  #alert{left:auto;right:14px;width:330px;bottom:calc(14px + var(--sb))}
+  #sheet{left:auto;right:14px;bottom:14px;width:390px;border-radius:18px;
+    border:1px solid var(--line);max-height:calc(100dvh - 130px)}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<div id="map"></div>
+
+<header id="bar">
+  <h1>げんつき<em>マップ</em></h1>
+  <div class="where">神戸・西宮・宝塚</div>
+  <button id="infoBtn" aria-label="ルールと出典">i</button>
+</header>
+
+<nav id="chips" aria-label="表示する規制"></nav>
+
+<div id="stat">読み込み中…</div>
+
+<div id="alert" hidden role="status">
+  <div class="a-kind"></div>
+  <div class="a-dist"></div>
+  <div class="a-note"></div>
+  <button class="a-close" type="button">閉じる</button>
+</div>
+
+<div id="tools">
+  <button class="tool" id="voiceBtn" aria-pressed="false" aria-label="音声案内">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9.5v5h3.2L12 18.5v-13L7.2 9.5H4z" stroke-linejoin="round"/><path d="M15.5 9.2a4 4 0 010 5.6"/><path d="M18 6.8a7.5 7.5 0 010 10.4"/></svg>
+    <span>音声</span>
+  </button>
+  <button class="tool" id="locBtn" aria-pressed="false" aria-label="現在地">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+    <span>現在地</span>
+  </button>
+</div>
+
+<section id="sheet" hidden aria-live="polite">
+  <div class="grip"></div>
+  <div class="s-head">
+    <div id="sGlyph"></div>
+    <div>
+      <div class="s-tag" id="sTag"></div>
+      <h2 class="s-title" id="sTitle"></h2>
+    </div>
+  </div>
+  <p class="s-detail" id="sDetail"></p>
+  <dl class="s-meta" id="sMeta"></dl>
+  <button class="closebtn" id="sClose">閉じる</button>
+</section>
+
+<div id="info" aria-hidden="true">
+  <article class="doc">
+    <h2>原付一種で走る前に見る地図</h2>
+    <p class="lead">50cc以下の白ナンバーだけが持つ2つの縛り——<b>二段階右折</b>と<b>入れない道路</b>——を、兵庫県警の交通規制オープンデータから神戸市・西宮市・宝塚市ぶんだけ抜き出して地図にしたものです。</p>
+
+    <h3>二段階右折の条件</h3>
+    <div class="rulecard">
+      <span class="gl" data-glyph="req"></span>
+      <div><h4>標識があれば、車線数に関係なく二段階</h4>
+      <p>「原動機付自転車の右折方法（二段階）」の青い標識。この3市には3か所しかありません。</p></div>
+    </div>
+    <div class="rulecard">
+      <span class="gl" data-glyph="est"></span>
+      <div><h4>車両通行帯が3以上＋信号あり なら二段階</h4>
+      <p>標識が無くても法令上こうなります。走りながら車線を数えるのは無理があるので、規制データから計算して先に出しておくのがこの地図の主目的です。</p></div>
+    </div>
+    <div class="rulecard">
+      <span class="gl" data-glyph="no"></span>
+      <div><h4>「小回り」標識があれば、二段階してはいけない</h4>
+      <p>3車線以上でもこの標識が優先。3市で346か所。右折レーンから普通に曲がります。</p></div>
+    </div>
+    <div class="caution"><p>間違えると交差点右左折方法違反。反則金3,000円・違反点数1点。</p></div>
+
+    <h3>この地図に入っているもの</h3>
+    <table class="facts">
+      <tr><th>二段階右折（推定）</th><td class="n">477</td><td>片側3車線以上の信号交差点への進入路</td></tr>
+      <tr><th>二段階右折 標識</th><td class="n">3</td><td>標識による指定</td></tr>
+      <tr><th>小回り 標識</th><td class="n">346</td><td>二段階右折をしてはいけない交差点</td></tr>
+      <tr><th>原付通行禁止</th><td class="n">86</td><td>六甲山系の土日祝規制・夜間規制など</td></tr>
+      <tr><th>自動車専用道路</th><td class="n">1527</td><td>阪神高速・第二神明・山麓バイパスなど</td></tr>
+    </table>
+
+    <h3>どうやって出したか</h3>
+    <p>兵庫県警が公開している交通規制データ（全県11万6939件）には、判定に必要な3つがすべて入っていました。<b>標識そのもの</b>（二段階／小回り）、<b>交差点ごとの車両通行帯数</b>、<b>信号機の位置</b>です。通行帯3以上の進入路から80m以内に信号機があるものを二段階右折と判定し、45m以内に小回り標識があるものには注記を付けています（消してしまうと「不要」と誤って伝わるため）。</p>
+    <p>出した地点の最寄り幹線道路を照合すると、国道2号・山手幹線・国道43号・国道28号・浜手幹線など、実際に片側3車線以上ある道に集中しました。</p>
+
+    <h3>走る前と、走っている間</h3>
+    <p>右下の<b>現在地</b>をオンにすると、300m以内に二段階右折の交差点や通行禁止区間が入ったときに大きく距離を出します。<b>音声</b>もオンにすれば「およそ200メートル先、二段階右折の交差点です」と読み上げるので、画面を見る必要はありません。</p>
+
+    <h3>この地図が間違えうるところ</h3>
+    <ul>
+      <li>通行帯数が交差点手前の実際の車線数と一致しない場合がある</li>
+      <li>小回り標識が一部の進入路だけに立っている交差点で、他の進入路にも注記が付く</li>
+      <li>データは2026年7月時点。規制は変わる</li>
+    </ul>
+    <div class="caution"><p><b>現地の標識・信号・警察官の指示が常に優先されます。</b>走行中のスマートフォン操作は道路交通法違反です。停めてから見てください。</p></div>
+
+    <h3>原付が入れない道路（3市の主なもの）</h3>
+    <ul>
+      <li>阪神高速 全線（3号神戸線・5号湾岸線・7号北神戸線・31号神戸山手線・32号新神戸トンネル）</li>
+      <li>第二神明道路、中国自動車道、新名神高速道路、山陽自動車道、神戸淡路鳴門自動車道</li>
+      <li>山麓バイパス（全区間）、六甲北有料道路（全区間）、六甲有料道路の六甲山トンネル区間</li>
+      <li>芦有ドライブウェイ（125cc以下は通行禁止／土日祝は二輪車全般）</li>
+      <li>六甲山系の一部道路は土日祝のみ二輪通行止め — 地図上で赤く出ます</li>
+    </ul>
+
+    <h3>出典</h3>
+    <p class="src">
+      交通規制情報：兵庫県警察／公益財団法人日本道路交通情報センター（JARTIC）オープンデータ 2026年7月版<br>
+      道路・鉄道・海岸線：© OpenStreetMap contributors（ODbL）<br>
+      行政区域：Linked Open Addresses Japan<br>
+      地図描画：MapLibre GL JS
+    </p>
+    <button class="closebtn" id="iClose">閉じる</button>
+  </article>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js"></script>
+<script src="genki-base.js"></script>
+<script src="genki-data.js"></script>
+<script>
+(function(){
+'use strict';
+var C={amber:'#f5871f',blue:'#2b7de0',danger:'#e8443c',express:'#b23a58',grey:'#8b97a6'};
+
+/* ---- 標識グリフ（規制標識をかたどったもの） ---- */
+var GLYPH={
+  est:'<svg class="gl" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="'+C.amber+'" stroke-width="2.6"/><path d="M12 18v-5h4.5" fill="none" stroke="'+C.amber+'" stroke-width="2" stroke-linecap="round"/><path d="M16.5 13l-1.6-1.6M16.5 13l-1.6 1.6" fill="none" stroke="'+C.amber+'" stroke-width="2" stroke-linecap="round"/><path d="M12 13V7.5" fill="none" stroke="'+C.amber+'" stroke-width="2" stroke-linecap="round" opacity=".55"/></svg>',
+  req:'<svg class="gl" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="'+C.amber+'"/><path d="M9.5 18.5v-5H15" fill="none" stroke="#141414" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 13.5l-1.8-1.8M15 13.5l-1.8 1.8" fill="none" stroke="#141414" stroke-width="2" stroke-linecap="round"/><path d="M15 9.2V5.6" fill="none" stroke="#141414" stroke-width="2" stroke-linecap="round"/><path d="M15 5.6l-1.6 1.7M15 5.6l1.6 1.7" fill="none" stroke="#141414" stroke-width="2" stroke-linecap="round"/></svg>',
+  no:'<svg class="gl" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="'+C.blue+'"/><path d="M10 18V11.5h4" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 11.5l-2-2M14 11.5l-2 2" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round"/></svg>',
+  ban:'<svg class="gl" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.2" fill="none" stroke="'+C.danger+'" stroke-width="3"/><path d="M6 17.5L18 6.5" stroke="'+C.danger+'" stroke-width="3" stroke-linecap="round"/></svg>',
+  exp:'<svg class="gl" viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="2.5" fill="none" stroke="'+C.express+'" stroke-width="2"/><path d="M5.5 12h4M11 12h2.5M15.5 12h3" stroke="'+C.express+'" stroke-width="2" stroke-linecap="round"/></svg>'
+};
+var LAYERS=[
+  {key:'two_stage_likely',    glyph:'est', label:'二段階右折（推定）', ids:['ts_line','ts_pt']},
+  {key:'two_stage_required_sign',glyph:'req',label:'二段階右折 標識',  ids:['ts_sign']},
+  {key:'two_stage_forbidden', glyph:'no',  label:'小回り（禁止）',    ids:['ts_no']},
+  {key:'moped_banned',        glyph:'ban', label:'原付通行禁止',      ids:['ban_line','ban_pt']},
+  {key:'expressway',          glyph:'exp', label:'自動車専用道路',    ids:['expw']}
+];
+var LANDMARKS=[["三ノ宮",135.19509,34.69486],["元町",135.18715,34.68957],["神戸",135.17828,34.67929],
+["新神戸",135.19567,34.70471],["兵庫",135.16418,34.66779],["新長田",135.14578,34.65776],
+["板宿",135.13328,34.66016],["須磨",135.11256,34.64224],["垂水",135.05385,34.62928],
+["舞子",135.03382,34.63351],["名谷",135.0943,34.67931],["学園都市",135.05751,34.68151],
+["西神中央",135.01746,34.71942],["鈴蘭台",135.14588,34.72384],["谷上",135.17139,34.76185],
+["灘",135.21618,34.70584],["六甲道",135.23809,34.71461],["住吉",135.26188,34.71953],
+["御影",135.25259,34.72468],["岡本",135.2759,34.72918],["夙川",135.32816,34.74227],
+["西宮",135.34815,34.73902],["西宮北口",135.3568,34.74596],["甲子園",135.3629,34.72408],
+["今津",135.35163,34.73202],["宝塚",135.33993,34.81087],["逆瀬川",135.35042,34.79769],
+["中山寺",135.37387,34.81666],["市民広場",135.21261,34.66481]];
+
+var STYLE={version:8,sources:{
+      base:{type:'geojson',data:window.BASEMAP},
+      g:{type:'geojson',data:window.GENKI}},
+    layers:[
+      {id:'bg',type:'background',paint:{'background-color':'#0e1116'}},
+      {id:'water',type:'fill',source:'base',filter:['==',['get','k'],'water'],
+        paint:{'fill-color':'#121a24'}},
+      {id:'coast',type:'line',source:'base',filter:['==',['get','k'],'coast'],
+        paint:{'line-color':'#1d2836','line-width':1.2}},
+      {id:'rail',type:'line',source:'base',filter:['==',['get','k'],'rail'],
+        paint:{'line-color':'#242c37','line-width':1,'line-dasharray':[3,2.5]}},
+      {id:'road4',type:'line',source:'base',filter:['all',['==',['get','k'],'road'],['>=',['get','c'],3]],
+        paint:{'line-color':'#232a34','line-width':['interpolate',['linear'],['zoom'],10,.6,16,2.4]}},
+      {id:'road2',type:'line',source:'base',filter:['all',['==',['get','k'],'road'],['==',['get','c'],2]],
+        paint:{'line-color':'#2e3742','line-width':['interpolate',['linear'],['zoom'],10,1,16,3.6]}},
+      {id:'road1',type:'line',source:'base',filter:['all',['==',['get','k'],'road'],['==',['get','c'],1]],
+        paint:{'line-color':'#3a4553','line-width':['interpolate',['linear'],['zoom'],10,1.4,16,5]}},
+
+      {id:'expw',type:'line',source:'g',filter:['==',['get','layer'],'expressway'],
+        paint:{'line-color':C.express,'line-width':['interpolate',['linear'],['zoom'],10,1.6,16,4],
+               'line-dasharray':[2,1.6],'line-opacity':.85}},
+      {id:'ban_line',type:'line',source:'g',filter:['==',['get','layer'],'moped_banned'],
+        paint:{'line-color':C.danger,'line-width':['interpolate',['linear'],['zoom'],10,2,16,7],
+               'line-opacity':['case',['get','always'],.92,.55]}},
+      {id:'ban_pt',type:'circle',source:'g',
+        filter:['all',['==',['get','layer'],'moped_banned'],['==',['geometry-type'],'Point']],
+        paint:{'circle-radius':5,'circle-color':C.danger,'circle-stroke-width':2,'circle-stroke-color':'#0e1116'}},
+      {id:'ts_line',type:'line',source:'g',filter:['==',['get','layer'],'two_stage_likely_line'],
+        paint:{'line-color':C.amber,'line-width':['interpolate',['linear'],['zoom'],11,2,17,9],
+               'line-opacity':.42}},
+      {id:'ts_no',type:'circle',source:'g',filter:['==',['get','layer'],'two_stage_forbidden'],
+        paint:{'circle-radius':['interpolate',['linear'],['zoom'],11,2.6,14,5,17,9],
+               'circle-color':C.blue,
+               'circle-opacity':['interpolate',['linear'],['zoom'],11,.6,14,.95],
+               'circle-stroke-width':1,'circle-stroke-color':'#0b1626'}},
+      {id:'ts_pt',type:'circle',source:'g',filter:['==',['get','layer'],'two_stage_likely'],
+        paint:{'circle-radius':['interpolate',['linear'],['zoom'],11,4,14,6.5,17,12],
+               'circle-color':'rgba(14,17,22,.55)',
+               'circle-stroke-width':['interpolate',['linear'],['zoom'],11,1.7,17,3.2],
+               'circle-stroke-color':['case',['!=',['get','koma'],null],C.grey,C.amber]}},
+      {id:'ts_sign',type:'circle',source:'g',filter:['==',['get','layer'],'two_stage_required_sign'],
+        paint:{'circle-radius':['interpolate',['linear'],['zoom'],11,6,17,14],
+               'circle-color':C.amber,'circle-stroke-width':2.5,'circle-stroke-color':'#fff'}}
+    ]};
+var map=new maplibregl.Map({
+  container:'map', attributionControl:false, style:STYLE,
+  center:[135.21,34.705], zoom:11.4, minZoom:9.5, maxZoom:18,
+  maxBounds:[[134.85,34.5],[135.6,35.05]]
+});
+
+map.on('error',function(e){ if(window.console&&e&&e.error) console.error('MAPERR:',e.error.message||e.error); });
+
+/* ---- 目印ラベル ---- */
+var marks=[];
+map.on('load',function(){
+  LANDMARKS.forEach(function(L){
+    var el=document.createElement('div'); el.className='mk'; el.textContent=L[0];
+    marks.push(new maplibregl.Marker({element:el,anchor:'left'}).setLngLat([L[1],L[2]]).addTo(map));
+  });
+  syncMarks(); stat();
+});
+function syncMarks(){
+  var z=map.getZoom(), show=z>=10.6;
+  marks.forEach(function(m){ m.getElement().style.display=show?'block':'none'; });
+}
+map.on('zoom',syncMarks);
+map.on('moveend',stat);
+
+/* ---- チップ ---- */
+var counts={};
+window.GENKI.features.forEach(function(f){var l=f.properties.layer;counts[l]=(counts[l]||0)+1;});
+var chips=document.getElementById('chips'), on={};
+LAYERS.forEach(function(L){
+  on[L.key]=true;
+  var b=document.createElement('button');
+  b.className='chip'; b.type='button'; b.setAttribute('aria-pressed','true');
+  b.innerHTML=GLYPH[L.glyph]+'<span>'+L.label+'</span><span class="n">'+(counts[L.key]||0)+'</span>';
+  b.addEventListener('click',function(){
+    on[L.key]=!on[L.key];
+    b.setAttribute('aria-pressed',String(on[L.key]));
+    L.ids.forEach(function(id){
+      if(map.getLayer(id)) map.setLayoutProperty(id,'visibility',on[L.key]?'visible':'none');
+    });
+    stat();
+  });
+  chips.appendChild(b);
+});
+
+/* ---- 画面内の件数 ---- */
+function stat(){
+  if(!map.isStyleLoaded()) return;
+  var ids=[]; LAYERS.forEach(function(L){ if(on[L.key]) ids=ids.concat(L.ids); });
+  ids=ids.filter(function(i){return map.getLayer(i);});
+  var seen={};
+  if(ids.length){
+    map.queryRenderedFeatures({layers:ids}).forEach(function(f){
+      var k=f.properties.layer; seen[k]=(seen[k]||0)+1;
+    });
+  }
+  var t=[];
+  if(seen.two_stage_likely) t.push('二段階右折 '+seen.two_stage_likely);
+  if(seen.two_stage_required_sign) t.push('標識 '+seen.two_stage_required_sign);
+  if(seen.two_stage_forbidden) t.push('小回り '+seen.two_stage_forbidden);
+  if(seen.moped_banned) t.push('通行禁止 '+seen.moped_banned);
+  document.getElementById('stat').textContent = t.length? ('画面内　'+t.join('　/　')) : '画面内に該当なし';
+}
+
+/* ---- 詳細 ---- */
+var TAG={two_stage_likely:['推定',C.amber],two_stage_required_sign:['標識',C.amber],
+  two_stage_forbidden:['標識',C.blue],moped_banned:['規制データ',C.danger],expressway:['OSM',C.express]};
+var GKEY={two_stage_likely:'est',two_stage_required_sign:'req',two_stage_forbidden:'no',
+  moped_banned:'ban',expressway:'exp'};
+var sheet=document.getElementById('sheet'), current=null;
+['expw','ban_line','ban_pt','ts_line','ts_no','ts_pt','ts_sign'].forEach(function(id){
+  map.on('click',id,function(e){ open(e.features[0].properties); });
+  map.on('mouseenter',id,function(){map.getCanvas().style.cursor='pointer';});
+  map.on('mouseleave',id,function(){map.getCanvas().style.cursor='';});
+});
+function esc(s){return String(s).replace(/[<>&]/g,function(c){return {'<':'&lt;','>':'&gt;','&':'&amp;'}[c];});}
+function open(p){
+  if(p.layer==='two_stage_likely_line') p.layer='two_stage_likely';
+  current=p;
+  var t=TAG[p.layer]||['',C.grey];
+  var tag=document.getElementById('sTag');
+  tag.textContent=t[0]; tag.style.color=t[1];
+  document.getElementById('sGlyph').innerHTML=GLYPH[GKEY[p.layer]]||'';
+  document.getElementById('sTitle').textContent=p.title||'';
+  document.getElementById('sDetail').textContent=p.detail||'';
+  var dl=document.getElementById('sMeta'), rows=[];
+  if(p.city) rows.push(['市',p.city]);
+  if(p.lanes) rows.push(['車両通行帯',p.lanes+' 以上']);
+  if(p.time) rows.push(['規制時間',p.time]);
+  if(p.cond) rows.push(['条件',p.cond]);
+  if(p.koma!=null&&p.koma!=='') rows.push(['注記','約'+p.koma+'m先に小回り標識あり。現地の標識が優先']);
+  if(p.src) rows.push(['出典',p.src]);
+  dl.innerHTML=rows.map(function(r){return '<dt>'+esc(r[0])+'</dt><dd>'+esc(r[1])+'</dd>';}).join('');
+  sheet.hidden=false;
+}
+document.getElementById('sClose').onclick=function(){sheet.hidden=true;};
+var info=document.getElementById('info');
+document.getElementById('infoBtn').onclick=function(){info.dataset.open='1';info.setAttribute('aria-hidden','false');};
+document.getElementById('iClose').onclick=function(){info.dataset.open='';info.setAttribute('aria-hidden','true');};
+document.querySelectorAll('#info [data-glyph]').forEach(function(el){
+  el.outerHTML=GLYPH[el.dataset.glyph];
+});
+
+/* ---- 近接アラート ---- */
+var PTS=[], ALERT_IN=300, ALERT_OUT=430, voiceOn=false, alerted={}, me=null;
+window.GENKI.features.forEach(function(f,i){
+  if(f.geometry.type!=='Point') return;
+  PTS.push({i:PTS.length,x:f.geometry.coordinates[0],y:f.geometry.coordinates[1],p:f.properties});
+});
+var KIND={
+  two_stage_likely:{t:'二段階右折',k:'',say:'二段階右折の交差点です'},
+  two_stage_required_sign:{t:'二段階右折 標識',k:'',say:'二段階右折の標識があります'},
+  two_stage_forbidden:{t:'小回り右折',k:'no',say:'ここは二段階右折禁止です'},
+  moped_banned:{t:'原付通行禁止',k:'ban',say:'この先、原付は通行できません'}
+};
+var alertBox=document.getElementById('alert');
+alertBox.querySelector('.a-close').onclick=function(){alertBox.hidden=true;};
+function metersBetween(a,b){
+  var la=(a[1]+b[1])/2*Math.PI/180;
+  var dx=(b[0]-a[0])*Math.PI/180*Math.cos(la), dy=(b[1]-a[1])*Math.PI/180;
+  return Math.round(Math.sqrt(dx*dx+dy*dy)*6371000);
+}
+function checkNear(){
+  if(!me) return;
+  var best=null;
+  for(var i=0;i<PTS.length;i++){
+    var q=PTS[i];
+    if(!on[q.p.layer]) continue;
+    if(Math.abs(q.x-me[0])>0.006||Math.abs(q.y-me[1])>0.005) continue;
+    var d=metersBetween(me,[q.x,q.y]);
+    if(d<=ALERT_IN&&(!best||d<best.d)) best={q:q,d:d};
+  }
+  Object.keys(alerted).forEach(function(k){
+    var q=PTS[k]; if(!q||metersBetween(me,[q.x,q.y])>ALERT_OUT) delete alerted[k];
+  });
+  if(!best){ alertBox.hidden=true; return; }
+  var kd=KIND[best.q.p.layer]; if(!kd){ alertBox.hidden=true; return; }
+  alertBox.dataset.kind=kd.k;
+  alertBox.querySelector('.a-kind').textContent=kd.t;
+  alertBox.querySelector('.a-dist').textContent='約 '+best.d+' m';
+  alertBox.querySelector('.a-note').textContent=
+    (best.q.p.lanes?('片側'+best.q.p.lanes+'車線・信号交差点（推定）'):'')+(best.q.p.time?(' '+best.q.p.time):'');
+  alertBox.hidden=false;
+  if(!alerted[best.q.i]){
+    alerted[best.q.i]=1;
+    if(navigator.vibrate) navigator.vibrate([120,60,120]);
+    if(voiceOn) say('およそ'+(Math.round(best.d/10)*10)+'メートル先、'+kd.say);
+  }
+}
+function say(text){
+  try{ var u=new SpeechSynthesisUtterance(text); u.lang='ja-JP'; u.rate=1.05;
+    speechSynthesis.cancel(); speechSynthesis.speak(u); }catch(e){}
+}
+document.getElementById('voiceBtn').onclick=function(){
+  voiceOn=!voiceOn;
+  this.setAttribute('aria-pressed',String(voiceOn));
+  if(voiceOn) say('音声案内をオンにしました');
+};
+
+/* ---- 現在地 ---- */
+var watch=null, meMarker=null;
+document.getElementById('locBtn').onclick=function(){
+  var b=this;
+  if(watch!=null){ navigator.geolocation.clearWatch(watch); watch=null;
+    b.setAttribute('aria-pressed','false'); if(meMarker){meMarker.remove();meMarker=null;}
+    me=null; alerted={}; alertBox.hidden=true; return; }
+  if(!navigator.geolocation) return;
+  b.setAttribute('aria-pressed','true');
+  watch=navigator.geolocation.watchPosition(function(pos){
+    var c=[pos.coords.longitude,pos.coords.latitude];
+    if(!meMarker){
+      var el=document.createElement('div');
+      el.style.cssText='width:15px;height:15px;border-radius:50%;background:#4da3ff;border:3px solid #fff;box-shadow:0 0 0 7px rgba(77,163,255,.22)';
+      meMarker=new maplibregl.Marker({element:el}).setLngLat(c).addTo(map);
+      map.easeTo({center:c,zoom:Math.max(map.getZoom(),14.5)});
+    } else meMarker.setLngLat(c);
+    me=c; checkNear();
+  },function(){ b.setAttribute('aria-pressed','false'); watch=null; },
+  {enableHighAccuracy:true,maximumAge:3000,timeout:15000});
+};
+
+})();
+</script>
