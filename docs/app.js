@@ -302,40 +302,47 @@ $('#searchForm').addEventListener('submit',function(e){
 });
 function search(q){
   if(!q) return;
-  toast('検索中…',0); results.hidden=true;
-  var gsi=fetch('https://msearch.gsi.go.jp/address-search/AddressSearch?q='+encodeURIComponent(q))
-    .then(function(r){ return r.json(); })
-    .then(function(a){ return (a||[]).map(function(f){
-        return { name:f.properties.title, sub:'地理院 住所検索',
-                 x:f.geometry.coordinates[0], y:f.geometry.coordinates[1] }; }); })
-    .catch(function(){ return []; });
-  var nom=fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&countrycodes=jp&viewbox=134.9,34.98,135.5,34.55&bounded=0&q='+encodeURIComponent(q),
-      {headers:{'Accept':'application/json'}})
-    .then(function(r){ return r.json(); })
-    .then(function(a){ return (a||[]).map(function(o){
-        var n=o.display_name.split(',');
-        return { name:o.name||n[0], sub:n.slice(1,4).join('、').trim(),
-                 x:parseFloat(o.lon), y:parseFloat(o.lat) }; }); })
-    .catch(function(){ return []; });
+  results.hidden=true;
+  var btn=$('#goBtn'); btn.disabled=true; btn.textContent='検索中';
+  var acc=[], seen={}, done=0;
 
-  Promise.all([gsi,nom]).then(function(a){
-    var list=[], seen={};
-    // 3市の範囲に近いものを優先
-    a[0].concat(a[1]).forEach(function(r){
+  function push(list){
+    list.forEach(function(r){
       if(!r || !isFinite(r.x) || !isFinite(r.y)) return;
       var k=r.name+'@'+r.x.toFixed(3)+','+r.y.toFixed(3);
       if(seen[k]) return; seen[k]=1;
       r.near = (r.x>134.9&&r.x<135.5&&r.y>34.55&&r.y<34.98) ? 0 : 1;
       var t=r.name||'';
       r.fit = (t===q) ? 0 : (t.indexOf(q)===0 ? 1 : (t.indexOf(q)>=0 ? 2 : 3));
-      list.push(r);
+      acc.push(r);
     });
-    list.sort(function(p,q2){ return (p.near-q2.near) || (p.fit-q2.fit) ||
+    acc.sort(function(p,q2){ return (p.near-q2.near) || (p.fit-q2.fit) ||
       (p.name.length - q2.name.length); });
-    hideToast();
-    if(!list.length){ toast('見つかりませんでした'); return; }
-    renderResults(list.slice(0,8));
-  });
+    if (acc.length) renderResults(acc.slice(0,8));
+  }
+  function finish(){
+    if (++done < 2) return;
+    btn.disabled=false; btn.textContent='検索';
+    if (!acc.length) toast('見つかりませんでした');
+  }
+
+  /* 地理院の住所検索は速いので先に表示する */
+  fetch('https://msearch.gsi.go.jp/address-search/AddressSearch?q='+encodeURIComponent(q))
+    .then(function(r){ return r.json(); })
+    .then(function(a){ push((a||[]).map(function(f){
+        return { name:f.properties.title, sub:'地理院 住所検索',
+                 x:f.geometry.coordinates[0], y:f.geometry.coordinates[1] }; })); })
+    .catch(function(){}).then(finish);
+
+  /* Nominatim は店名などを拾えるが遅いので後追いで足す */
+  fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&countrycodes=jp&viewbox=134.9,34.98,135.5,34.55&bounded=0&q='+encodeURIComponent(q),
+      {headers:{'Accept':'application/json'}})
+    .then(function(r){ return r.json(); })
+    .then(function(a){ push((a||[]).map(function(o){
+        var n=o.display_name.split(',');
+        return { name:o.name||n[0], sub:n.slice(1,4).join('、').trim(),
+                 x:parseFloat(o.lon), y:parseFloat(o.lat) }; })); })
+    .catch(function(){}).then(finish);
 }
 function renderResults(list){
   results.innerHTML='';
@@ -552,6 +559,7 @@ function renderRoute(r, isAlt){
           (n.koma!=null&&n.koma!==''?'　※近くに小回り標識あり':'')+'</b>'):'')+'</span>';
     ol.appendChild(li);
   });
+  resetSheetHeight($('#route'));
   $('#route').hidden=false;
   $('#sheet').hidden=true;
 }
@@ -577,6 +585,55 @@ map.on('touchstart', function(e){
   map.on(ev, function(){ clearTimeout(pressT); });
 });
 
+
+/* ==================== ボトムシートのドラッグ ====================
+   グリップを掴んで上下に引くと、peek（内容ぶん）と full（画面の88%）を行き来する。
+   離した瞬間の速度を見てスナップするのが、iOSらしい手触りの8割。 */
+function makeDraggable(el){
+  var grip = el.querySelector('.grip'); if (!grip) return;
+  var startY=0, startH=0, lastY=0, lastT=0, v=0, dragging=false;
+  function vh(f){ return window.innerHeight*f; }
+  function peekH(){ return Math.min(vh(0.46), el.scrollHeight + 8); }
+  function fullH(){ return Math.min(vh(0.88), Math.max(el.scrollHeight + 8, vh(0.5))); }
+  function snapTo(h){
+    el.style.transition='height .28s cubic-bezier(.32,.72,0,1)';
+    el.style.height=Math.round(h)+'px';
+    setTimeout(function(){ el.style.transition=''; },300);
+  }
+  grip.addEventListener('pointerdown',function(e){
+    dragging=true; startY=lastY=e.clientY; lastT=Date.now();
+    startH=el.getBoundingClientRect().height;
+    el.style.transition='';
+    try{ grip.setPointerCapture(e.pointerId); }catch(err){}
+    e.preventDefault();
+  });
+  grip.addEventListener('pointermove',function(e){
+    if(!dragging) return;
+    var now=Date.now(), dt=Math.max(1, now-lastT);
+    v=(lastY-e.clientY)/dt; lastY=e.clientY; lastT=now;
+    var h=startH + (startY-e.clientY);
+    h=Math.max(120, Math.min(vh(0.92), h));
+    el.style.height=Math.round(h)+'px';
+    e.preventDefault();
+  });
+  ['pointerup','pointercancel'].forEach(function(ev){
+    grip.addEventListener(ev,function(e){
+      if(!dragging) return; dragging=false;
+      var h=el.getBoundingClientRect().height, p=peekH(), f=fullH();
+      if (v>0.4) snapTo(f);
+      else if (v<-0.4){ if (h < p*0.7) { el.hidden=true; el.style.height=''; } else snapTo(p); }
+      else snapTo(h > (p+f)/2 ? f : p);
+      v=0;
+    });
+  });
+  /* グリップのタップでも開閉できるようにする（引っ張れると気づかない人向け） */
+  grip.addEventListener('click',function(){
+    var h=el.getBoundingClientRect().height;
+    snapTo(h > (peekH()+fullH())/2 ? peekH() : fullH());
+  });
+}
+function resetSheetHeight(el){ el.style.transition=''; el.style.height=''; }
+
 /* ---------------- 詳細シート ---------------- */
 var TAG={ two_stage_likely:['推定',C.amber], two_stage_required_sign:['標識',C.amber],
   two_stage_forbidden:['標識',C.blue], moped_banned:['規制データ',C.danger], expressway:['OSM',C.express] };
@@ -600,6 +657,7 @@ function openSheet(p, lngLat){
   if(p.src) rows.push(['出典',p.src]);
   $('#sMeta').innerHTML=rows.map(function(r){
     return '<dt>'+escapeHtml(r[0])+'</dt><dd>'+escapeHtml(r[1])+'</dd>'; }).join('');
+  resetSheetHeight($('#sheet'));
   $('#sheet').hidden=false;
 }
 $('#sClose').addEventListener('click',function(){ $('#sheet').hidden=true; });
@@ -654,6 +712,7 @@ function openPoiSheet(f, lngLat){
   rows.push(['出典','OpenStreetMap（背景地図の地点データ）']);
   $('#sMeta').innerHTML=rows.map(function(r){
     return '<dt>'+escapeHtml(r[0])+'</dt><dd>'+escapeHtml(r[1])+'</dd>'; }).join('');
+  resetSheetHeight($('#sheet'));
   $('#sheet').hidden=false;
 }
 function existingLayers(ids){ return ids.filter(function(i){ return map.getLayer(i); }); }
@@ -1079,4 +1138,6 @@ window.addEventListener('unhandledrejection', function(ev){
   el.textContent='エラー(非同期): '+((ev.reason&&(ev.reason.message||ev.reason))||'');
   el.hidden=false;
 });
+makeDraggable($('#sheet'));
+makeDraggable($('#route'));
 toast('規制データを読み込み中…',0);

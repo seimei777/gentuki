@@ -8,6 +8,7 @@
   --sb:env(safe-area-inset-bottom,0px);
 }
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html,body{margin:0;height:100%;background:var(--ground);color:var(--ink);font-family:var(--jp);
   overflow:hidden;-webkit-text-size-adjust:100%;overscroll-behavior:none}
 button,input{font-family:inherit}
@@ -35,7 +36,8 @@ button,input{font-family:inherit}
   backdrop-filter:blur(8px)}
 #q::placeholder{color:var(--muted2);font-weight:500}
 #goBtn{flex:0 0 auto;padding:0 16px;border-radius:12px;border:0;background:var(--amber);
-  color:#1a1004;font-weight:800;font-size:13px;cursor:pointer}
+  color:#1a1004;font-weight:800;font-size:13px;cursor:pointer;min-width:62px}
+#goBtn:disabled{opacity:.6}
 #results{list-style:none;margin:7px 0 0;padding:6px;background:var(--surface);
   border:1px solid var(--line);border-radius:12px;max-height:46vh;overflow:auto;
   box-shadow:0 14px 36px rgba(0,0,0,.5)}
@@ -69,13 +71,16 @@ button,input{font-family:inherit}
   background:var(--surface);border:1px solid var(--line);color:var(--ink);font-size:12.5px;
   font-weight:700;padding:9px 16px;border-radius:999px;box-shadow:0 10px 28px rgba(0,0,0,.5)}
 
-.grip{width:40px;height:4px;border-radius:2px;background:var(--line);margin:0 auto 12px}
+.grip{width:100%;height:26px;display:grid;place-items:center;margin:0 0 6px;cursor:grab;
+  touch-action:none;-webkit-user-select:none;user-select:none}
+.grip::before{content:"";width:40px;height:5px;border-radius:2.5px;background:var(--line)}
+.grip:active{cursor:grabbing}
 
 /* ルートパネル */
 #route{position:fixed;z-index:8;left:0;right:0;bottom:0;background:var(--surface);
   border-top:1px solid var(--line);border-radius:20px 20px 0 0;
-  padding:10px 16px calc(16px + var(--sb));max-height:58dvh;overflow:auto;
-  box-shadow:0 -18px 50px rgba(0,0,0,.55)}
+  padding:10px 16px calc(16px + var(--sb));max-height:92dvh;overflow:auto;
+  overscroll-behavior:contain;box-shadow:0 -18px 50px rgba(0,0,0,.55)}
 .r-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:12px}
 .r-dest{font-size:13px;font-weight:700;line-height:1.4;color:var(--muted)}
 .r-sum{margin-top:3px;display:flex;align-items:baseline;gap:9px}
@@ -122,7 +127,7 @@ button,input{font-family:inherit}
 #sheet{position:fixed;z-index:9;left:0;right:0;bottom:0;background:var(--surface);
   border-top:1px solid var(--line);border-radius:20px 20px 0 0;
   padding:10px 18px calc(16px + var(--sb));box-shadow:0 -18px 50px rgba(0,0,0,.55);
-  max-height:70dvh;overflow:auto}
+  max-height:92dvh;overflow:auto;overscroll-behavior:contain}
 .s-head{display:flex;align-items:flex-start;gap:12px}
 .s-head .gl{width:30px;height:30px;margin-top:2px}
 .s-tag{display:inline-block;font-family:var(--num);font-size:11px;font-weight:700;
@@ -239,8 +244,9 @@ body[data-theme="day"] .r-steps li.two .d{color:#b35309}
 
 #navBar{position:fixed;z-index:11;left:0;right:0;bottom:0;
   padding:14px 16px calc(14px + var(--sb));background:var(--surface);
-  border-top:1px solid var(--line);display:flex;align-items:center;gap:8px;
+  border-top:1px solid var(--line);align-items:center;gap:8px;
   box-shadow:0 -8px 28px rgba(0,0,0,.4)}
+body[data-nav="1"] #navBar{display:flex}
 .nv{flex:1;text-align:center;display:grid;gap:2px}
 .nv b{font-family:var(--num);font-size:22px;font-weight:700;color:var(--ink);
   font-variant-numeric:tabular-nums;line-height:1}
@@ -260,9 +266,7 @@ body[data-nav="1"] #chips,
 body[data-nav="1"] #stat,
 body[data-nav="1"] #tools,
 body[data-nav="1"] #alert{display:none}
-body[data-nav="1"] #navBand,
-body[data-nav="1"] #navBar{display:block}
-body[data-nav="1"] #navBar{display:flex}
+body[data-nav="1"] #navBand{display:block}
 
 /* 現在地ボタンの3段階を見た目で区別する */
 .tool[data-mode="1"]{border-color:var(--route);color:var(--route);background:rgba(26,115,232,.14)}
