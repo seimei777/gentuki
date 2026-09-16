@@ -303,6 +303,11 @@ body[data-theme="day"] #compass{background:rgba(255,255,255,.96);
    地点をタップして開く詳細シート(9)の上にボタンが乗ってしまう。 */
 body[data-nav="1"] #tools  {bottom:calc(14px  + var(--navh,0px)); z-index:12}
 body[data-nav="1"] #compass{bottom:calc(292px + var(--navh,0px)); z-index:12}
+/* 下バーの高さは残り距離の桁や折り返しで変わる。固定値だとバーに潜る。
+   トーストは z-index 7 で下バー(11)の後ろに隠れていたので前へ出す。 */
+body[data-nav="1"] #navRecenter{bottom:calc(16px + var(--navh,0px)); z-index:13}
+/* 再センターと同じ高さだと両方出たときに重なるので、トーストは一段上 */
+body[data-nav="1"] #toast      {bottom:calc(62px + var(--navh,0px)); z-index:13}
 
 .tool[data-mode="3d"]{border-color:var(--route);color:var(--route);background:rgba(26,115,232,.14)}
 .tool[data-mode="3d"] span{color:var(--route)}

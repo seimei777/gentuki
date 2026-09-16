@@ -1990,12 +1990,11 @@ map.on('rotate', updateCompass);
 map.on('pitch', updateCompass);
 $('#compass').addEventListener('click',function(){
   if (nav.on){
-    /* Googleマップと同じで、ナビ中は「北固定」と「進行方向」の切り替え。
-       追従そのものは止めない（止まるのは地図を手で動かしたときだけ）。 */
-    nav.northUp = !nav.northUp;
-    nav.userBearing=false; nav.camHold=0;
-    queueCam(); updateCompass();
-    toast(nav.northUp?'北を上に固定します':'進行方向を上にします',2000);
+    /* ナビ中は「進行方向に戻す」だけ。押すたびに北固定と切り替わる作りにしたら、
+       一度押すと回らなくなって戻し方が分からない、という状態になっていた。
+       Googleマップも案内中は進行方向に戻すだけ。 */
+    nav.userBearing=false; nav.northUp=false; nav.camHold=0;
+    queueCam();
     return;
   }
   if (locMode===2) setLocMode(1);
@@ -2121,6 +2120,12 @@ function stopLocate(){
   alertBox.hidden=true;
 }
 $('#locBtn').addEventListener('click',function(){
+  if (nav.on){
+    /* ナビ中は追従の入切がそもそも効かず、押しても何も起きないボタンだった。
+       Googleマップと同じく「現在地に戻す」として使う。 */
+    $('#navRecenter').click();
+    return;
+  }
   /* iOS は方角センサーの許可をタップの中でしか求められないので、ここで有効化する。
      進行方向モードに入る時だけでは、止まっている間ドットの向きが分からない。 */
   enableCompass();
