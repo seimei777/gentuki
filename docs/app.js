@@ -30,7 +30,9 @@ var BASEMAP = {
   day:   'https://tiles.openfreemap.org/styles/liberty',
   night: 'https://tiles.openfreemap.org/styles/dark'
 };
-var theme = (localStorage.getItem('gentuki.theme')) ||
+function lsGet(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }
+function lsSet(k,v){ try { localStorage.setItem(k,v); } catch(e){} }
+var theme = lsGet('gentuki.theme') ||
             ((new Date().getHours() >= 18 || new Date().getHours() < 6) ? 'night' : 'day');
 
 var map = new maplibregl.Map({
@@ -68,7 +70,7 @@ function firstSymbolLayerId(){
 
 function setTheme(t){
   theme=t;
-  try { localStorage.setItem('gentuki.theme',t); } catch(e){}
+  lsSet('gentuki.theme',t);
   var btn=$('#themeBtn');
   if (btn){ btn.setAttribute('aria-pressed', String(t==='night')); }
   document.body.dataset.theme=t;
@@ -94,7 +96,7 @@ function expand(doc){
     var q=f.properties, lay=LAYER_NAME[q.l], p={layer:lay};
     if(q.c!=null) p.city=CITY_NAME[q.c];
     if(q.n!=null) p.lanes=q.n;
-    p.koma = (q.k==null? null : q.k);
+    if (q.k!=null) p.koma = q.k;
     if(lay==='two_stage_likely'||lay==='two_stage_likely_line'){
       p.title='二段階右折（推定）片側'+(q.n||3)+'車線';
       p.detail='車両通行帯が3以上の信号交差点への進入路。原付一種はこの方向から右折するとき二段階右折。※推定（現地の標識が優先）';
@@ -128,7 +130,7 @@ function expand(doc){
 
 var styleReady = new Promise(function(res){ map.once('load', res); });
 var ready = Promise.all([
-  fetch('data/genki.min.geojson').then(function(r){ return r.json(); }).then(expand),
+  fetch('data/genki.min.geojson?v=3').then(function(r){ return r.json(); }).then(expand),
   styleReady
 ]);
 ready.then(function(a){
@@ -229,7 +231,7 @@ function addLayers(){
     paint:{'circle-radius':['interpolate',['linear'],['zoom'],11.5,3.5,14,6.5,17,12],
            'circle-color':'#fff',
            'circle-stroke-width':['interpolate',['linear'],['zoom'],11.5,2,17,3.5],
-           'circle-stroke-color':['case',['!=',['get','koma'],null],C.grey,C.amber]}});
+           'circle-stroke-color':['case',['has','koma'],C.grey,C.amber]}});
   add({id:'ts_sign',type:'circle',source:'g',filter:['==',['get','layer'],'two_stage_required_sign'],
     minzoom:10,
     paint:{'circle-radius':['interpolate',['linear'],['zoom'],11,6,17,14],'circle-color':C.amber,
@@ -659,10 +661,43 @@ map.on('click', function(e){
   if (nav.on) return;
   var ours=existingLayers(['expw','ban_line','ban_pt','ts_line','ts_no','ts_pt','ts_sign','route_turn']);
   if (ours.length && map.queryRenderedFeatures(e.point,{layers:ours}).length) return; // 規制の方を優先
-  var pad=10, box=[[e.point.x-pad,e.point.y-pad],[e.point.x+pad,e.point.y+pad]];
+
+  var pad=12, box=[[e.point.x-pad,e.point.y-pad],[e.point.x+pad,e.point.y+pad]];
   var poi=map.queryRenderedFeatures(box,{layers:existingLayers(POI_LAYERS)});
-  if (poi.length) openPoiSheet(poi[0], e.lngLat);
+  if (poi.length){ openPoiSheet(poi[0], e.lngLat); return; }
+
+  /* 何も無い場所をタップしたとき：シートが開いていれば閉じる、閉じていればピンを落とす。
+     POI はズーム15以上でしか地図に存在しないので、これが無いと
+     「建物を押しても何も出ない」状態になる */
+  if (!$('#sheet').hidden){ $('#sheet').hidden=true; return; }
+  dropPin(e.lngLat);
 });
+
+function dropPin(lngLat){
+  sheetPt=[lngLat.lng, lngLat.lat];
+  var tag=$('#sTag'); tag.textContent='地点'; tag.style.color=C.route;
+  $('#sGlyph').innerHTML='';
+  $('#sTitle').textContent='この地点';
+  $('#sDetail').textContent='住所を調べています…';
+  var rows=[];
+  if (me){
+    var d=meters(me,[lngLat.lng,lngLat.lat]);
+    rows.push(['現在地から', d>=1000 ? (Math.round(d/100)/10)+' km' : d+' m']);
+  }
+  $('#sMeta').innerHTML=rows.map(function(r){
+    return '<dt>'+escapeHtml(r[0])+'</dt><dd>'+escapeHtml(r[1])+'</dd>'; }).join('');
+  $('#sheet').hidden=false;
+  /* 地理院の逆ジオコーダで住所を引く（失敗しても地点として使える） */
+  fetch('https://mreversegeocoder.gsi.go.jp/reverse-geocoder/LonLatToAddress?lat='+
+        lngLat.lat+'&lon='+lngLat.lng)
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      var nm=j && j.results && j.results.lv01Nm;
+      $('#sDetail').textContent = nm ? nm : 'この場所を目的地にできます。';
+    })
+    .catch(function(){ $('#sDetail').textContent='この場所を目的地にできます。'; });
+}
+
 map.on('mousemove', function(e){
   if (nav.on) return;
   var ls=existingLayers(POI_LAYERS);
@@ -837,7 +872,7 @@ map.on('dragstart', function(e){
 });
 
 /* ---------------- 現在地・近接アラート ---------------- */
-var watch=null, meMarker=null, me=null, voiceOn=false, alerted={}, lastHeading=null, lastSpeed=null;
+var watch=null, meMarker=null, me=null, voiceOn=false, alerted={}, lastHeading=null, lastSpeed=null, lowAccTried=false;
 var alertBox=$('#alert');
 alertBox.querySelector('.a-close').addEventListener('click',function(){ alertBox.hidden=true; });
 
@@ -851,7 +886,7 @@ function setLocMode(m){
   b.setAttribute('aria-pressed', String(m>0));
   b.dataset.mode = String(m);
   b.querySelector('span').textContent = m===2 ? '進行方向' : (m===1 ? '追従中' : '現在地');
-  try { localStorage.setItem('gentuki.locMode', String(m)); } catch(e){}
+  lsSet('gentuki.locMode', String(m));
   if (m>0 && me) applyFollow(me, lastHeading, lastSpeed);
 }
 function applyFollow(c, heading, speed){
@@ -870,8 +905,9 @@ function applyFollow(c, heading, speed){
 function startLocate(cb){
   if(watch!=null){ if(cb) cb(); return; }
   if(!navigator.geolocation){ toast('この端末では現在地を取得できません'); return; }
+  if(!window.isSecureContext){ toast('安全な接続（https）でないため現在地を取得できません',8000); return; }
   var first=true;
-  watch=navigator.geolocation.watchPosition(function(pos){
+  function onFix(pos){
     var c=[pos.coords.longitude,pos.coords.latitude];
     var acc=pos.coords.accuracy||0, hd=pos.coords.heading, sp=pos.coords.speed||0;
     me=c;
@@ -903,10 +939,28 @@ function startLocate(cb){
     if(first){ first=false; if(cb) cb(); }
     checkNear();
     navUpdate(pos);
-  }, function(err){
-    $('#locBtn').setAttribute('aria-pressed','false'); watch=null;
-    toast('現在地を取得できません（'+err.message+'）',5000);
-  }, {enableHighAccuracy:true,maximumAge:3000,timeout:15000});
+  }
+  watch=navigator.geolocation.watchPosition(onFix, function(err){
+    watch=null; setLocMode(0);
+    var msg;
+    if (err.code===1){
+      msg='位置情報がブロックされています。Safariなら アドレスバー左の「ぁA」→ Webサイトの設定 →「位置情報」を「許可」に。' +
+          'iPhoneは 設定 → プライバシーとセキュリティ → 位置情報サービス → Safari Webサイト も確認してください。';
+    } else if (err.code===2){
+      msg='現在地を特定できませんでした。屋内や地下だと失敗します。屋外で試してください。';
+    } else {
+      msg='現在地の取得がタイムアウトしました。もう一度お試しください。';
+      // 高精度が取れない端末向けに一段落として再挑戦する
+      if (!lowAccTried){
+        lowAccTried=true;
+        watch=navigator.geolocation.watchPosition(onFix, function(){}, 
+          {enableHighAccuracy:false, maximumAge:10000, timeout:30000});
+        toast('精度を下げて再取得しています…',4000);
+        return;
+      }
+    }
+    toast(msg, 9000);
+  }, {enableHighAccuracy:true,maximumAge:3000,timeout:20000});
 }
 function stopLocate(){
   if(watch!=null) navigator.geolocation.clearWatch(watch);
@@ -1002,12 +1056,27 @@ $('#voiceBtn').addEventListener('click',function(){
    許可ダイアログは出さない（未許可ならボタンを押したときだけ出る） */
 (function autoLocate(){
   if (!navigator.permissions || !navigator.permissions.query) return;
-  navigator.permissions.query({name:'geolocation'}).then(function(st){
+  var q;
+  try { q = navigator.permissions.query({name:'geolocation'}); } catch(e){ return; }
+  if (!q || !q.then) return;
+  q.then(function(st){
     if (st.state!=='granted') return;
-    var m = parseInt(localStorage.getItem('gentuki.locMode')||'1',10);
+    var m = parseInt(lsGet('gentuki.locMode')||'1',10);
     startLocate(function(){ setLocMode(m>0?m:1); });
   }).catch(function(){});
 })();
 document.body.dataset.theme=theme;
 $('#themeBtn').setAttribute('aria-pressed',String(theme==='night'));
+window.addEventListener('error', function(ev){
+  var el=document.getElementById('crash');
+  if (!el) return;
+  el.textContent='エラー: '+(ev.message||'')+' @'+((ev.filename||'').split('/').pop())+':'+(ev.lineno||'');
+  el.hidden=false;
+});
+window.addEventListener('unhandledrejection', function(ev){
+  var el=document.getElementById('crash');
+  if (!el) return;
+  el.textContent='エラー(非同期): '+((ev.reason&&(ev.reason.message||ev.reason))||'');
+  el.hidden=false;
+});
 toast('規制データを読み込み中…',0);
