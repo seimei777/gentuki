@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """原付マップ データビルダー: JARTIC交通規制情報(兵庫県警) -> GeoJSON(神戸/西宮/宝塚)"""
-import csv, sys, json, math, collections, os
+import csv, sys, json, math, collections, os, re
 csv.field_size_limit(sys.maxsize)
 SRCS=[('hyogo/typeD_hyogo/兵庫県警_202607_k_2.1.csv','兵庫県警'),
       ('osaka/typeD_osaka/大阪府警_202607_k_2.1.csv','大阪府警')]
@@ -221,6 +221,11 @@ for c in ('4','5','7'):
         cond=row['規制条件']
         # 規制条件で対象が別の車種に限定されているものは原付には効かない
         if any(w in cond for w in ('危険物','積載車両','タンク車')): continue
+        # 「○○以外通行止め」は、その○○なら通れるという意味。
+        # 「二輪車以外通行止め」は二輪車＝原付は通れるので、禁止として出してはいけない。
+        # 対象車両コードのビットだけ見ていると、ここを取りこぼして
+        # 「通れる道を通れない」と表示してしまう。
+        if re.search(r'(二輪|原動機付自転車|自動二輪)[^、]{0,6}以外', nm): continue
         t=timetext(row)
         always = (t=='' or t=='終日')
         if always: t=''

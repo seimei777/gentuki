@@ -21,6 +21,9 @@ var LAYERS = [
   {key:'two_stage_required_sign', glyph:'req', label:'二段階右折 標識', ids:['ts_sign']},
   {key:'two_stage_forbidden', glyph:'no', label:'小回り（禁止）', ids:['ts_no']},
   {key:'moped_banned', glyph:'ban', label:'原付通行禁止', ids:['ban_line','ban_pt']},
+  /* 歩行者用道路は原付が入れない場所そのもの（商店街・通学路が多い）。
+     地図には描いていたのにこの一覧に無く、絞り込みにも件数にも出ていなかった。 */
+  {key:'pedestrian_only', glyph:'ped', label:'歩行者用道路', ids:['ped_line','ped_line_t','ped_pt']},
   {key:'expressway', glyph:'exp', label:'自動車専用道路', ids:['expw']}
 ];
 
@@ -226,11 +229,19 @@ function addLayers(){
     paint:{'circle-radius':5,'circle-color':C.danger,'circle-stroke-width':2,
            'circle-stroke-color':'#fff'}});
 
-  add({id:'ped_line',type:'line',source:'g',filter:['==',['get','layer'],'pedestrian_only'],
+  /* line-dasharray はフィーチャごとに値を変えられない（MapLibre の制約で
+     「data expressions not supported」になり、レイヤーごと作られず落ちる）。
+     終日と時間限定で実線・破線を分けたいので、2本のレイヤーに分ける。 */
+  var PED_W=['interpolate',['linear'],['zoom'],11,1.5,16,5];
+  add({id:'ped_line',type:'line',source:'g',
+    filter:['all',['==',['get','layer'],'pedestrian_only'],['==',['get','always'],true]],
     layout:{'line-cap':'round'},
-    paint:{'line-color':C.ped,'line-width':['interpolate',['linear'],['zoom'],11,1.5,16,5],
-           'line-opacity':['case',['get','always'],.85,.5],
-           'line-dasharray':['case',['get','always'],['literal',[1,0]],['literal',[3,2]]]}});
+    paint:{'line-color':C.ped,'line-width':PED_W,'line-opacity':.85}});
+  add({id:'ped_line_t',type:'line',source:'g',
+    filter:['all',['==',['get','layer'],'pedestrian_only'],['!=',['get','always'],true]],
+    layout:{'line-cap':'round'},
+    paint:{'line-color':C.ped,'line-width':PED_W,'line-opacity':.55,
+           'line-dasharray':[3,2]}});
   add({id:'ped_pt',type:'circle',source:'g',
     filter:['all',['==',['get','layer'],'pedestrian_only'],['==',['geometry-type'],'Point']],
     minzoom:13,
@@ -291,7 +302,7 @@ function addLayers(){
 var clicksBound=false;
 function bindClicks(){
   if (clicksBound) return; clicksBound=true;
-  ['expw','ban_line','ban_pt','ped_line','ped_pt','ts_line','ts_no','ts_pt','ts_sign','route_turn'].forEach(function(id){
+  ['expw','ban_line','ban_pt','ped_line','ped_line_t','ped_pt','ts_line','ts_no','ts_pt','ts_sign','route_turn'].forEach(function(id){
     map.on('click',id,function(e){ openSheet(e.features[0].properties, e.lngLat); });
     map.on('mouseenter',id,function(){ map.getCanvas().style.cursor='pointer'; });
     map.on('mouseleave',id,function(){ map.getCanvas().style.cursor=''; });
@@ -816,7 +827,7 @@ function openPoiSheet(f, lngLat){
 function existingLayers(ids){ return ids.filter(function(i){ return map.getLayer(i); }); }
 map.on('click', function(e){
   if (nav.on) return;
-  var ours=existingLayers(['expw','ban_line','ban_pt','ped_line','ped_pt','ts_line','ts_no','ts_pt','ts_sign','route_turn']);
+  var ours=existingLayers(['expw','ban_line','ban_pt','ped_line','ped_line_t','ped_pt','ts_line','ts_no','ts_pt','ts_sign','route_turn']);
   if (ours.length && map.queryRenderedFeatures(e.point,{layers:ours}).length) return; // 規制の方を優先
 
   var pad=12, box=[[e.point.x-pad,e.point.y-pad],[e.point.x+pad,e.point.y+pad]];
