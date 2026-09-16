@@ -91,6 +91,35 @@ function boostNightLabels(){
   });
 }
 
+/* 夜のスタイルには poi レイヤーが1つも定義されておらず、店や施設の名前が
+   まったく出ない（昼の liberty には poi_r1/r7/r20/transit の4つがある）。
+   データ元もスプライトも同じなので、レイヤー定義だけを夜用に足す。 */
+var POI_TEXT=['coalesce',['get','name:ja'],['get','name'],['get','name:latin']];
+var POI_ICON=['match',['get','subclass'],['florist','furniture'],['get','subclass'],['get','class']];
+function addNightPoi(){
+  if (theme!=='night') return;
+  if (!map.getSource('openmaptiles')) return;      // スタイル差し替えの途中
+  function poi(id, minzoom, filter, color, size){
+    if (map.getLayer(id)) return;
+    try{
+      map.addLayer({ id:id, type:'symbol', source:'openmaptiles', 'source-layer':'poi',
+        minzoom:minzoom, filter:filter,
+        layout:{ 'text-field':POI_TEXT, 'text-font':['Noto Sans Regular'],
+                 'text-size':size, 'text-max-width':9,
+                 'text-anchor':'top', 'text-offset':[0,0.7],
+                 'icon-image':POI_ICON, 'icon-size':0.9, 'icon-optional':true,
+                 'text-optional':false },
+        paint:{ 'text-color':color, 'text-halo-color':'rgba(0,0,0,0.9)',
+                'text-halo-width':1.5, 'text-halo-blur':0.3, 'icon-opacity':0.9 }});
+    }catch(e){}
+  }
+  var pt=['match',['geometry-type'],['MultiPoint','Point'],true,false];
+  poi('gk_poi_major', 15, ['all',pt,['>=',['get','rank'],1],['<',['get','rank'],7]],   '#e6eaef', 12.5);
+  poi('gk_poi_mid',   16, ['all',pt,['>=',['get','rank'],7],['<',['get','rank'],20]],  '#ccd3db', 12);
+  poi('gk_poi_minor', 17, ['all',pt,['>=',['get','rank'],20]],                          '#b3bcc6', 11.5);
+  poi('gk_poi_transit', 13, ['match',['get','class'],['airport','bus','rail'],true,false], '#8fc3ea', 12.5);
+}
+
 /* 自前レイヤを挿し込む位置：ラベルの下、道路の上。
    「最初の symbol レイヤ」を基準にしてはいけない。夜スタイル(dark)では
    index 8 の water_name が最初の symbol で、道路レイヤ18個すべてがその後ろに来る。
@@ -115,7 +144,7 @@ function setTheme(t){
   document.body.dataset.theme=t;
   map.setStyle(BASEMAP[t]);
   map.once('styledata', function(){       // MapLibre は style.load を発火しないので styledata を使う
-    forceJapaneseLabels(); boostNightLabels();
+    forceJapaneseLabels(); boostNightLabels(); addNightPoi();
     if (DATA) addLayers();                // ソース・レイヤはスタイル差し替えで消えるので貼り直す
   });
 }
@@ -350,7 +379,7 @@ ready.then(function(a){
     PTS.push(p);
     var k = gkey(p.x,p.y); (grid[k]||(grid[k]=[])).push(p);
   });
-  buildBanIndex(); forceJapaneseLabels(); boostNightLabels(); addLayers(); buildChips(); hideToast();
+  buildBanIndex(); forceJapaneseLabels(); boostNightLabels(); addNightPoi(); addLayers(); buildChips(); hideToast();
 }).catch(function(e){ console.error(e); toast('データを読み込めませんでした'); });
 
 var banGrid={};
