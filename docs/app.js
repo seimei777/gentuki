@@ -98,12 +98,11 @@ function expand(doc){
     if(q.n!=null) p.lanes=q.n;
     if (q.k!=null) p.koma = q.k;
     if(lay==='two_stage_likely'||lay==='two_stage_likely_line'){
-      p.title='二段階右折（法令）片側'+(q.n||3)+'車線';
+      p.title='二段階右折　片側'+(q.n||3)+'車線';
       p.strong = (q.o!=null && q.o>=3);            // OSMの車線数でも裏が取れたもの
-      p.detail = '車両通行帯が3以上＋信号あり。道交法ではこの条件だけで、標識が無くても'
-        + '原付一種は二段階右折が義務になります。' +
-        (p.strong ? '地図データの車線数とも一致しています。'
-                  : '地図データ側の車線数では裏が取れていません（交差点の手前で右折レーンが増える場所はこうなります）。現地の車線を確認してください。');
+      p.detail = '車両通行帯が3以上、かつ信号機あり。道交法ではこの条件だけで、'
+        + '標識が無くても原付一種は二段階右折が義務です。'
+        + (q.k!=null ? 'ただし近くに小回り標識があります。標識がある場合はそちらが優先で、二段階右折をしてはいけません。' : '');
       p.src=SRC_EST; p.confidence='estimated';
     } else if(lay==='two_stage_required_sign'){
       p.title='二段階右折 標識';
@@ -235,9 +234,7 @@ function addLayers(){
     paint:{'circle-radius':['interpolate',['linear'],['zoom'],11.5,3.5,14,6.5,17,12],
            'circle-color':'#fff',
            'circle-stroke-width':['interpolate',['linear'],['zoom'],11.5,2,17,3.5],
-           'circle-stroke-color':['case',['has','koma'],C.grey,C.amber],
-           'circle-opacity':['case',['get','strong'],1,0.75],
-           'circle-stroke-opacity':['case',['get','strong'],1,0.55]}});
+           'circle-stroke-color':['case',['has','koma'],C.grey,C.amber]}});
   add({id:'ts_sign',type:'circle',source:'g',filter:['==',['get','layer'],'two_stage_required_sign'],
     minzoom:10,
     paint:{'circle-radius':['interpolate',['linear'],['zoom'],11,6,17,14],'circle-color':C.amber,
@@ -619,7 +616,7 @@ function renderRoute(r, isAlt){
     var n=needByMi[i];
     if(n) li.className='two';
     var d=m.km>=1 ? (Math.round(m.km*10)/10+' km') : (Math.round(m.km*1000/10)*10+' m');
-    li.innerHTML='<span class="d">'+(m.km?d:'')+'</span><span>'+escapeHtml(m.text||'')+
+    li.innerHTML='<span class="d">'+(m.km?d:'')+'</span><span>'+escapeHtml(cleanSay(m.text||''))+
       (n?('<br><b>▲ ここは二段階右折'+(n.sign?'（標識あり）':'（推定）')+
           (n.koma!=null&&n.koma!==''?'　※近くに小回り標識あり':'')+'</b>'):'')+'</span>';
     ol.appendChild(li);
@@ -700,7 +697,7 @@ function makeDraggable(el){
 function resetSheetHeight(el){ el.style.transition=''; el.style.height=''; }
 
 /* ---------------- 詳細シート ---------------- */
-var TAG={ two_stage_likely:['法令',C.amber], two_stage_required_sign:['標識',C.amber],
+var TAG={ two_stage_likely:['義務',C.amber], two_stage_required_sign:['標識',C.amber],
   two_stage_forbidden:['標識',C.blue], moped_banned:['規制データ',C.danger], expressway:['OSM',C.express] };
 var GKEY={ two_stage_likely:'est', two_stage_required_sign:'req', two_stage_forbidden:'no',
   moped_banned:'ban', expressway:'exp' };
@@ -716,7 +713,8 @@ function openSheet(p, lngLat){
   var rows=[];
   if(p.city) rows.push(['市',p.city]);
   if(p.lanes) rows.push(['車両通行帯（県警データ）',p.lanes]);
-  if(p.osm!=null) rows.push(['車線数（OSM）','片側 '+p.osm+' 車線'+(p.osm>=3?'（一致）':'（不一致）')]);
+  if(p.osm!=null) rows.push(['参考：地図データの車線数','片側 '+p.osm+' 車線'+
+    (p.osm>=3?'（一致）':'（交差点で右折レーンが増える場所はこうなります）')]);
   if(p.road) rows.push(['道路',p.road]);
   if(p.time) rows.push(['規制時間',p.time]);
   if(p.cond) rows.push(['条件',p.cond]);
@@ -892,7 +890,7 @@ $('#repShare').addEventListener('click', function(){
 });
 
 /* ナビ中：地点を通り過ぎたら「合ってた？」を出し、さらに進んだら引っ込める */
-var passCard=null;
+var passCard=null, passTimer=null;
 function checkPassed(alongM){
   var r=nav.r; if(!r||!r.need) return;
   for (var i=0;i<r.need.length;i++){
@@ -905,6 +903,8 @@ function checkPassed(alongM){
         passCard=n.pt.i;
         $('#passUk').value=n.pt.p.uk||'';
         $('#passCard').hidden=false;
+        clearTimeout(passTimer);
+        passTimer=setTimeout(function(){ $('#passCard').hidden=true; }, 20000);
       }
       return;
     }
@@ -912,11 +912,12 @@ function checkPassed(alongM){
   if (passCard!=null){ passCard=null; $('#passCard').hidden=true; }
 }
 $('#passYes').addEventListener('click',function(){ passAnswer('ok'); });
+$('#passClose').addEventListener('click',function(){ $('#passCard').hidden=true; passCard=-1; });
 $('#passNo').addEventListener('click',function(){ passAnswer('ng'); });
 function passAnswer(v){
   var uk=$('#passUk').value;
   if (uk) reportSet(uk, v, {});
-  $('#passCard').hidden=true; passCard=-1;
+  $('#passCard').hidden=true; passCard=-1; clearTimeout(passTimer);
   if (navigator.vibrate) navigator.vibrate(40);
 }
 
@@ -1097,7 +1098,7 @@ function renderNav(step, remainM, toManM){
     var lb=$('#navLeft');
     if (lb) lb.textContent = left ? ('この先 二段階右折 '+left+'か所') : '二段階右折はもうありません';
     var nx=r.maneuvers[step+1], ne=$('#navNext');
-    if (ne) ne.textContent = nx ? ('つぎに　'+(nx.text||'').replace(/。$/,'')) : '';
+    if (ne) ne.textContent = nx ? ('つぎに　'+cleanSay(nx.text||'').replace(/。$/,'')) : '';
   })();
   var r=nav.r; if(!r) return;
   var m=r.maneuvers[step]||{};
@@ -1107,7 +1108,7 @@ function renderNav(step, remainM, toManM){
   var twoIsKoma = two && two.koma!=null;
   $('#navIcon').textContent = (two&&!twoIsKoma)? '↱' : (MICON[m.type]||'↑');
   $('#navDist').textContent = navDistText(toManM);
-  $('#navText').textContent = m.text||'';
+  $('#navText').textContent = cleanSay(m.text||'').replace(/^つぎに、/,'');
   var mode = (twoIsKoma||koma) ? 'koma' : (two ? '1' : '');
   $('#navBand').dataset.two = mode;
   $('#navTwo').hidden = !mode;
@@ -1379,6 +1380,9 @@ function cleanSay(t){
     .replace(/,\s*[A-Za-z][A-Za-z0-9 .'\-]*/g,'')   // 併記されたローマ字名を落とす
     .replace(/。。+/g,'。')
     .replace(/です。その先/g,'です。つぎに、')
+    .replace(/\/[A-Za-z][A-Za-z0-9 .'\u2019\-]*/g,'')   // 「/Yamate Trunk Road」のような
+                                                      // ローマ字の併記だけを削る（日本語は残す）
+    .replace(/\s{2,}/g,' ')
     .trim();
 }
 function say(text){
