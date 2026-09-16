@@ -950,8 +950,7 @@ function reportSet(uk, v, meta){
 }
 function updateReportCount(){
   var n=Object.keys(reportsAll()).length, el=$('#repCount');
-  if (el) el.textContent = n ? (n+' 件の確認を記録しています') : 'まだ記録はありません';
-  var b=$('#repShare'); if (b) b.hidden = !n;
+  if (el) el.textContent = n ? (n+' 件の確認を送っています') : 'まだ記録はありません';
 }
 function renderFeedback(p){
   var box=$('#fb');
@@ -985,22 +984,9 @@ function bindFb(id, v){
 }
 bindFb('#fbYes','ok'); bindFb('#fbNo','ng');
 
-/* 記録をまとめてコピー（友達の端末からでも渡せるように） */
-$('#repShare').addEventListener('click', function(){
-  var all=reportsAll(), lines=['げんつきマップ 現地確認の記録'];
-  Object.keys(all).forEach(function(k){
-    var r=all[k];
-    lines.push([k, r.v, r.lanes||'', r.road||'', r.city||'', r.t].join('\t'));
-  });
-  var txt=lines.join('\n');
-  if (navigator.clipboard && navigator.clipboard.writeText){
-    navigator.clipboard.writeText(txt).then(function(){ toast('記録をコピーしました。そのまま送ってください',4000); })
-      .catch(function(){ prompt('この内容をコピーして送ってください', txt); });
-  } else prompt('この内容をコピーして送ってください', txt);
-});
-
 /* ナビ中：地点を通り過ぎたら「合ってた？」を出し、さらに進んだら引っ込める */
-var passCard=null, passTimer=null;
+var passCard=null, passTimer=null, passDone={};
+function hidePass(){ $('#passCard').hidden=true; passCard=null; clearTimeout(passTimer); }
 function checkPassed(alongM){
   var r=nav.r; if(!r||!r.need) return;
   for (var i=0;i<r.need.length;i++){
@@ -1009,25 +995,37 @@ function checkPassed(alongM){
     if (at==null) continue;
     var d=alongM-at;
     if (d>25 && d<160){                 // 通過直後だけ出す
+      /* 答えた地点・閉じた地点は二度と出さない。これが無いと、表示区間(135m)を
+         走り切るまで GPS 更新のたびに復活して、消しても消しても出てくる。 */
+      if (passDone[n.pt.i]) return;
       if (passCard!==n.pt.i){
         passCard=n.pt.i;
-        $('#passUk').value=n.pt.p.uk||'';
+        var pp=n.pt.p;
+        $('#passUk').value=pp.uk||'';
+        /* 走った人の報告が一番価値が高いので、地点の情報を落とさず一緒に送る */
+        $('#passCard').dataset.meta=JSON.stringify({lanes:pp.lanes, road:pp.road, city:pp.city});
+        $('#passWhere').textContent = pp.road || '';
         $('#passCard').hidden=false;
         clearTimeout(passTimer);
-        passTimer=setTimeout(function(){ $('#passCard').hidden=true; }, 20000);
+        passTimer=setTimeout(hidePass, 20000);
       }
       return;
     }
   }
-  if (passCard!=null){ passCard=null; $('#passCard').hidden=true; }
+  if (passCard!=null) hidePass();
 }
 $('#passYes').addEventListener('click',function(){ passAnswer('ok'); });
-$('#passClose').addEventListener('click',function(){ $('#passCard').hidden=true; passCard=-1; });
 $('#passNo').addEventListener('click',function(){ passAnswer('ng'); });
+$('#passClose').addEventListener('click',function(){
+  if (passCard!=null) passDone[passCard]=1;
+  hidePass();
+});
 function passAnswer(v){
-  var uk=$('#passUk').value;
-  if (uk) reportSet(uk, v, {});
-  $('#passCard').hidden=true; passCard=-1; clearTimeout(passTimer);
+  var uk=$('#passUk').value, meta={};
+  try { meta=JSON.parse($('#passCard').dataset.meta||'{}'); } catch(e){}
+  if (uk) reportSet(uk, v, meta);
+  if (passCard!=null) passDone[passCard]=1;
+  hidePass();
   if (navigator.vibrate) navigator.vibrate(40);
 }
 
@@ -1095,7 +1093,7 @@ function startNav(){
     var i=Math.min(m.shapeIndex!=null?m.shapeIndex:0, nav.cum.length-1);
     return nav.cum[i];
   });
-  document.body.dataset.nav='1';
+  document.body.dataset.nav='1'; passDone={};
   $('#navBand').hidden=false; $('#navBar').hidden=false; $('#navRecenter').hidden=true;
   syncNavHeight();                      // 表示してから測る（隠れている間は 0 になる）
   $('#route').hidden=true; $('#sheet').hidden=true;

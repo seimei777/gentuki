@@ -334,19 +334,25 @@ body[data-nav="1"] #compass{bottom:calc(292px + var(--navh,0px))}
 
 /* ---- 走行中：通過直後の確認カード ---- */
 /* 走行中の確認は、地図とルートを覆わないよう1行の細い帯にする */
-#passCard{position:fixed;z-index:12;left:10px;right:10px;
-  bottom:calc(98px + var(--sb));background:rgba(22,27,34,.94);
+/* ナビ中にしか出ない。右下のボタン列と横で重なるので、その手前で止める。
+   下バーの実測の高さ(--navh)だけ持ち上げて、一番下のボタンと同じ高さに並べる。 */
+#passCard{position:fixed;z-index:12;left:10px;right:76px;
+  bottom:calc(14px + var(--navh,0px));background:rgba(22,27,34,.94);
   border:1px solid var(--line);border-radius:999px;
   padding:6px 8px 6px 14px;display:flex;align-items:center;gap:8px;
   backdrop-filter:blur(8px);box-shadow:0 6px 18px rgba(0,0,0,.4)}
 body[data-theme="day"] #passCard{background:rgba(255,255,255,.96)}
-.pc-q{flex:1;min-width:0;font-size:12px;font-weight:700;color:var(--muted);
+.pc-text{flex:1;min-width:0;display:grid;gap:1px}
+.pc-q{font-size:12px;font-weight:700;color:var(--muted);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pc-where{font-size:10px;font-weight:700;color:var(--muted2);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pc-where:empty{display:none}
 .pc-row{display:flex;gap:6px;flex:0 0 auto}
-.pc-row button{padding:8px 12px;border-radius:999px;border:0;font-weight:800;
+.pc-row button{padding:8px 10px;border-radius:999px;border:0;font-weight:800;
   font-size:12px;cursor:pointer;white-space:nowrap}
 #passYes{background:var(--amber);color:#1a1004}
 #passNo{background:var(--surface2);color:var(--ink);border:1px solid var(--line)}
 #passClose{background:none;border:0;color:var(--muted2);font-size:16px;
-  padding:4px 6px;cursor:pointer;line-height:1}
+  padding:4px 3px;cursor:pointer;line-height:1}
 .sw-ped{background:#1f8a4c}

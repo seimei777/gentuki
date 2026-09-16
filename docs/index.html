@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;700;900&family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
-<link rel="stylesheet" href="style.css?v=202609170347">
+<link rel="stylesheet" href="style.css?v=202609170351">
 </head>
 <body>
 <div id="map"></div>
@@ -76,7 +76,10 @@
 
 <div id="passCard" hidden>
   <input type="hidden" id="passUk">
-  <div class="pc-q">いまの交差点、二段階右折でしたか？</div>
+  <div class="pc-text">
+    <div class="pc-q">二段階右折だった？</div>
+    <div class="pc-where" id="passWhere"></div>
+  </div>
   <div class="pc-row">
     <button id="passYes">はい</button>
     <button id="passNo">違った</button>
@@ -203,8 +206,8 @@
 
     <h3>現地確認の記録</h3>
     <p id="repCount">まだ記録はありません</p>
-    <p>点をタップして「二段階右折だった／違った」を押すと、この端末に記録されます。走行中は、その交差点を通り過ぎた直後に確認ボタンが出ます。</p>
-    <button class="closebtn" id="repShare" hidden>記録をコピーして送る</button>
+    <p>点をタップして「二段階右折だった／違った」を押すと記録され、他の人の地図にも反映されます。走行中は、その交差点を右折して通り過ぎた直後に確認ボタンが出ます。</p>
+    <p class="src">送るのは地点・判定・車線数・道路名だけです。位置の履歴や個人を特定する情報は送っていません。</p>
 
     <h3>出典</h3>
     <p class="src">
@@ -224,6 +227,6 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js"></script>
-<script src="app.js?v=202609170347"></script>
+<script src="app.js?v=202609170351"></script>
 </body>
 </html>
