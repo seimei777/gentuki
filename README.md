@@ -274,3 +274,43 @@ python3 tools/build_data.py
 「二段階右折（推定）」は法令の原則からの推定を含む。
 **現地の標識・信号・警察官の指示が常に優先される。** 規制は随時変更される。
 本マップの利用によって生じた違反・事故について作者は責任を負わない。
+
+---
+
+## 付録：Supabase を Claude Code に繋ぐ
+
+現地確認のフィードバックを集めるために Supabase を使っている。
+Claude Code から操作するときは、**プロジェクト単位**で MCP サーバーを登録する。
+
+```bash
+claude mcp add --scope local --transport http supabase \
+  "https://mcp.supabase.com/mcp?project_ref=<project_ref>&features=database,docs"
+```
+
+登録後、`/mcp` で `supabase` を選んで Authenticate する（ブラウザが開く）。
+`project_ref` は Supabase ダッシュボードの URL
+`supabase.com/dashboard/project/【ここ】` の部分。
+
+読み取り専用にしたいときは `&read_only=true` を足す。
+
+### なぜ組織単位ではなくプロジェクト単位にしているか
+
+claude.ai の Supabase コネクタ（OAuth）は**認可時に組織をひとつ選んで固定する**仕組みで、
+あとから別の組織を追加できない（[supabase/mcp#304](https://github.com/supabase/mcp/issues/304)）。
+先に仕事用の組織で認可していたため、あとから作った個人組織が選択肢に出ない状態だった。
+
+アカウント全体に効く個人アクセストークンを使う方法もあるが、
+- Mac に平文で保存される
+- 期限の管理が要る（最長1年、または無期限）
+- スコープ付きトークンはまだ public alpha で使えなかった
+- 仕事用の組織にも技術的に到達してしまう
+
+のに対し、プロジェクト単位なら**新規プロジェクトごとに認証ボタンを1回押すだけ**で、
+秘密情報を保存せず、他の組織へは構造的に到達できない。手間も安全性もこちらが上だった。
+
+### この構成で使う予定のテーブル
+
+| テーブル | 用途 |
+|---|---|
+| `spot_reports` | 現地確認の報告（交差点ID・判定・日時） |
+| `spot_report_counts`（ビュー） | 集計のみ公開。個票は匿名ユーザーから読めない |
