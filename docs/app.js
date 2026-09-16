@@ -107,36 +107,12 @@ var NIGHT_ROAD={
   highway_path:            '#26272b',
   road_pier:               '#26272b'
 };
-/* 一方通行の矢印。昼夜どちらでも効かせる。 */
-var ONEWAY_SIZE=['interpolate',['linear'],['zoom'],14,0.85,17,1.35,19,1.9];
-function boostOneway(){
-  [['road_oneway',0],['road_oneway_opposite',180],
-   ['road_one_way_arrow',0],['road_one_way_arrow_opposite',180]].forEach(function(a){
-    if(!map.getLayer(a[0])) return;
-    try{
-      map.setLayoutProperty(a[0],'visibility','visible');
-      map.setLayoutProperty(a[0],'icon-image','oneway');   // 昼の arrow は小さすぎる
-      map.setLayoutProperty(a[0],'icon-rotate',a[1]);
-      map.setLayoutProperty(a[0],'icon-size',ONEWAY_SIZE);
-      map.setLayoutProperty(a[0],'symbol-spacing',130);
-      map.setPaintProperty(a[0],'icon-opacity',1);
-    }catch(e){}
-  });
-}
-
 function boostNightRoads(){
   if (theme!=='night') return;
   Object.keys(NIGHT_ROAD).forEach(function(id){
     if(!map.getLayer(id)) return;
     try{ map.setPaintProperty(id,'line-color',NIGHT_ROAD[id]); }catch(e){}
   });
-  /* 一方通行の矢印は元からあるレイヤーをそのまま使う（線の上に正しく乗る）。
-     文字で描くとベースライン基準になり、道の横にずれる。
-     問題は大きさだけだった。
-       昼 arrow  : 10x7 で不透明画素は16個しかない極小の矢印
-       夜 oneway : 21x21 で80画素、ただし icon-opacity が 0.5
-     昼夜とも大きい方の oneway アイコンを使い、拡大して不透明にする。
-     boostOneway() はテーマに依らず呼ぶので、ここでは呼ばない。 */
 }
 
 /* 夜のスタイルには poi レイヤーが1つも定義されておらず、店や施設の名前が
@@ -192,7 +168,7 @@ function setTheme(t){
   document.body.dataset.theme=t;
   map.setStyle(BASEMAP[t]);
   map.once('styledata', function(){       // MapLibre は style.load を発火しないので styledata を使う
-    forceJapaneseLabels(); boostNightLabels(); boostNightRoads(); boostOneway(); addNightPoi();
+    forceJapaneseLabels(); boostNightLabels(); boostNightRoads(); addNightPoi();
     if (DATA) addLayers();                // ソース・レイヤはスタイル差し替えで消えるので貼り直す
   });
 }
@@ -427,7 +403,7 @@ ready.then(function(a){
     PTS.push(p);
     var k = gkey(p.x,p.y); (grid[k]||(grid[k]=[])).push(p);
   });
-  buildBanIndex(); forceJapaneseLabels(); boostNightLabels(); boostNightRoads(); boostOneway(); addNightPoi(); addLayers(); buildChips(); hideToast();
+  buildBanIndex(); forceJapaneseLabels(); boostNightLabels(); boostNightRoads(); addNightPoi(); addLayers(); buildChips(); hideToast();
 }).catch(function(e){ console.error(e); toast('データを読み込めませんでした'); });
 
 var banGrid={};
