@@ -1630,6 +1630,7 @@ function startNav(){
   if (!r) return;
   if (!me){ toast('先に現在地をオンにしてください',4000); startLocate(function(){ startNav(); }); return; }
   nav.on=true; nav.r=r; nav.said={}; nav.banSaid={}; nav.off=0; nav.lastIdx=null; nav.follow=true;
+  nav.northUp=false; nav.userZoom=null;
   /* 最初の案内は「出発」なので、表示は最初の曲がり角から始める */
   nav.step = (r.maneuvers[0] && r.maneuvers[0].type<=3 && r.maneuvers.length>1) ? 1 : 0;
   nav.cum = cumulative(r.shape);
@@ -1758,13 +1759,7 @@ function navUpdate(pos){
   } else bEl.hidden=true;
 
   /* --- カメラ追従 --- */
-  if (nav.follow){
-    var z = sp>11 ? 16.5 : sp>5.5 ? 17.0 : 17.5;
-    var b = nav.userBearing ? map.getBearing() : headingNow(sp);
-    map.easeTo({ center:c, bearing:b, pitch:(nav.userPitch!=null?nav.userPitch:60), zoom:z,
-      padding:{top:0,bottom:Math.round(map.getContainer().clientHeight*0.5),left:0,right:0},
-      duration:900, easing:function(t){return t;}, essential:true });
-  }
+  queueCam();          // カメラは updateCam に一本化
 }
 function renderNav(step, remainM, toManM){
   /* 残りの二段階右折と、次の次の案内を出す */
@@ -1813,7 +1808,7 @@ document.addEventListener('visibilitychange',function(){
 $('#navStart').addEventListener('click', startNav);
 $('#navEnd').addEventListener('click', stopNav);
 $('#navRecenter').addEventListener('click', function(){
-  nav.follow=true; nav.userBearing=false; nav.userPitch=null; this.hidden=true;
+  nav.follow=true; nav.userBearing=false; nav.userPitch=null; nav.userZoom=null; nav.northUp=false; this.hidden=true;
   if (me){                                  // 開始時と同じ寄り方で戻す
     nav.camHold=Date.now()+950;
     map.easeTo({ center:me, zoom:17.2, bearing:headingNow(lastSpeed), pitch:60,
@@ -1827,6 +1822,12 @@ map.on('dragstart', function(e){
 /* ナビ中に自分で回したら、その向きを尊重する（再センターで戻る） */
 map.on('rotatestart', function(e){
   if (nav.on && e && e.originalEvent){ nav.userBearing=true; $('#navRecenter').hidden=false; }
+});
+map.on('zoomstart', function(e){
+  if (nav.on && e && e.originalEvent) nav.userZoom=null;      // 一旦外して
+});
+map.on('zoomend', function(e){
+  if (nav.on && e && e.originalEvent) nav.userZoom=map.getZoom();
 });
 map.on('pitchstart', function(e){
   if (nav.on && e && e.originalEvent){ nav.userPitch=map.getPitch(); }
@@ -1861,18 +1862,36 @@ function onDeviceOrientation(e){
    これまで navUpdate の中だけで向きを決めていたが、そこはGPSの更新でしか
    呼ばれない。止まっているとGPSがほとんど来ないので、スマホを回しても
    画面が回らなかった。走行中(速度>2)はGPSの進行方向が優先なので触らない。 */
+/* ナビ中のカメラはここ1か所だけが動かす。
+   ボタンが自分で easeTo すると、コンパス由来の easeTo に毎フレーム
+   打ち消されて何も起きないように見える（2Dを押しても傾きが戻らない、
+   方位磁針を押しても北を向かない、という症状がこれ）。
+   ボタンはモードを変えるだけにして、反映はこの関数に集める。 */
 var camRaf=0;
+function navZoom(){
+  if (nav.userZoom!=null) return nav.userZoom;
+  var sp=lastSpeed;
+  return (sp>11) ? 16.5 : (sp>5.5) ? 17.0 : 17.5;
+}
+function navBearing(){
+  if (nav.northUp) return 0;                       // 方位磁針で北固定にしたとき
+  if (nav.userBearing) return map.getBearing();    // 自分で回したとき
+  return headingNow(lastSpeed);
+}
 function updateCam(){
   camRaf=0;
-  if (!nav.on || !nav.follow || nav.userBearing) return;
-  /* 開始直後の寄りアニメーションを潰さない。コンパスは毎秒何十回も来るので、
-     向きだけの easeTo が割り込むと center/zoom/pitch の動きごと中断される。 */
+  if (!nav.on || !nav.follow) return;
+  /* 開始直後の寄りアニメーションは最後まで通す */
   if (nav.camHold && Date.now() < nav.camHold) return;
-  if (lastSpeed!=null && lastSpeed>2) return;      // 走行中は navUpdate 側に任せる
-  if (deviceHeading==null) return;
-  var cur=map.getBearing(), d=((deviceHeading-cur+540)%360)-180;
-  if (Math.abs(d)<1.5) return;                     // 微動では回さない
-  map.easeTo({bearing:cur+d, duration:220, easing:function(t){return t;}, essential:true});
+  var b=navBearing(), p=(nav.userPitch!=null?nav.userPitch:60), z=navZoom();
+  var db=Math.abs(((b-map.getBearing()+540)%360)-180);
+  var dp=Math.abs(p-map.getPitch());
+  var dz=Math.abs(z-map.getZoom());
+  var c=map.getCenter(), dc=me? meters(me,[c.lng,c.lat]) : 0;
+  if (db<1.5 && dp<0.8 && dz<0.05 && dc<5) return;  // 微動では動かさない
+  map.easeTo({ center: me||c, zoom:z, bearing:b, pitch:p,
+    padding:{top:0,bottom:Math.round(map.getContainer().clientHeight*0.5),left:0,right:0},
+    duration:260, easing:function(t){return t;}, essential:true });
 }
 function queueCam(){ if (!camRaf) camRaf=requestAnimationFrame(updateCam); }
 
@@ -1912,13 +1931,23 @@ function updateCompass(){
   var b=map.getBearing(), p=map.getPitch();
   var el=$('#compass');
   if (!el) return;
-  el.hidden = (Math.abs(b)<0.5 && p<1);
+  /* ナビ中は常に出す。北固定＋2Dにすると bearing も pitch も 0 になり、
+     消えてしまって進行方向モードへ戻せなくなる。 */
+  el.hidden = nav.on ? false : (Math.abs(b)<0.5 && p<1);
   el.querySelector('.cmp-needle').style.transform='rotate('+(-b)+'deg)';
 }
 map.on('rotate', updateCompass);
 map.on('pitch', updateCompass);
 $('#compass').addEventListener('click',function(){
-  if (nav.on){ nav.userBearing=false; nav.userPitch=null; }
+  if (nav.on){
+    /* Googleマップと同じで、ナビ中は「北固定」と「進行方向」の切り替え。
+       追従そのものは止めない（止まるのは地図を手で動かしたときだけ）。 */
+    nav.northUp = !nav.northUp;
+    nav.userBearing=false; nav.camHold=0;
+    queueCam(); updateCompass();
+    toast(nav.northUp?'北を上に固定します':'進行方向を上にします',2000);
+    return;
+  }
   if (locMode===2) setLocMode(1);
   map.easeTo({bearing:0, pitch:0, duration:500});
 });
@@ -1932,7 +1961,12 @@ function updatePitchBtn(){
 }
 $('#pitchBtn').addEventListener('click',function(){
   var to = map.getPitch() > 20 ? 0 : 55;
-  if (nav.on) nav.userPitch = to;
+  if (nav.on){
+    nav.userPitch = to; nav.camHold=0;
+    queueCam();
+    setTimeout(updatePitchBtn, 520);
+    return;
+  }
   map.easeTo({pitch:to, duration:500});
   setTimeout(updatePitchBtn, 520);
 });
