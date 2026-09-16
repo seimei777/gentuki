@@ -1775,6 +1775,11 @@ function startLocate(cb){
   if(watch!=null){ if(cb) cb(); return; }
   if(!navigator.geolocation){ toast('この端末では現在地を取得できません'); return; }
   if(!window.isSecureContext){ toast('安全な接続（https）でないため現在地を取得できません',8000); return; }
+  /* 向きの扇を出すには方角センサーが要る。iOS は許可をタップの中でしか
+     求められないので、位置情報を始めるここで一緒に有効化する。
+     目的地をタップして位置情報が始まる経路もあり、そこを通ると
+     「現在地」ボタンを押すまで向きが分からないままになっていた。 */
+  enableCompass();
   var first=true;
   function onFix(pos){
     var c=[pos.coords.longitude,pos.coords.latitude];

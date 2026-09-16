@@ -190,12 +190,15 @@ table.facts td.n{font-family:var(--num);font-variant-numeric:tabular-nums;color:
 .puck-ring{position:absolute;inset:0;border-radius:50%;background:#1a73e8;
   border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35)}
 .puck.weak .puck-ring{background:#9aa0a6}
-.puck-cone{position:absolute;left:50%;top:50%;width:64px;height:64px;margin:-32px 0 0 -32px;
+/* 向きの扇。不透明度.45・幅44度では実寸だとほぼ見えなかったので、
+   濃く・広く・長くする。0度が北で時計回り。 */
+.puck-cone{position:absolute;left:50%;top:50%;width:80px;height:80px;margin:-40px 0 0 -40px;
   border-radius:50%;opacity:0;transition:opacity .2s;
-  background:conic-gradient(from calc(var(--hd,0deg) - 22deg),
-    rgba(26,115,232,.45) 0deg, rgba(26,115,232,0) 44deg, rgba(26,115,232,0) 360deg);
-  -webkit-mask:radial-gradient(circle,#000 10px,#000 30px,transparent 31px);
-  mask:radial-gradient(circle,#000 10px,#000 30px,transparent 31px)}
+  background:conic-gradient(from calc(var(--hd,0deg) - 28deg),
+    rgba(26,115,232,.9) 0deg, rgba(26,115,232,.6) 26deg,
+    rgba(26,115,232,0) 56deg, rgba(26,115,232,0) 360deg);
+  -webkit-mask:radial-gradient(circle,#000 9px,#000 36px,transparent 38px);
+  mask:radial-gradient(circle,#000 9px,#000 36px,transparent 38px)}
 .puck.has-hd .puck-cone{opacity:1}
 .puck.weak .puck-cone{opacity:0}
 
