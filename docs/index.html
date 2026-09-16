@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;700;900&family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
-<link rel="stylesheet" href="style.css?v=20260917044821">
+<link rel="stylesheet" href="style.css?v=20260917060136">
 </head>
 <body>
 <div id="map"></div>
@@ -181,12 +181,22 @@
       <p>3車線以上でもこの標識が優先。8市で508か所。右折レーンから普通に曲がります。</p></div></div>
     <div class="caution"><p>間違えると交差点右左折方法違反。反則金3,000円・違反点数1点。</p></div>
 
+    <h3>地図の見方</h3>
+    <table class="facts">
+      <tr><th>オレンジの円</th><td class="n">632</td><td>二段階右折が必要な交差点</td></tr>
+      <tr><th>グレーの円</th><td class="n"></td><td>近くに「小回り」標識がある交差点。標識が優先なので<b>二段階右折をしてはいけません</b></td></tr>
+      <tr><th>円から伸びる線</th><td class="n"></td><td>その交差点に<b>どの方向から入ったとき</b>の話かを示す進入路。横や逆から入るときは関係ありません</td></tr>
+      <tr><th>青い円</th><td class="n">508</td><td>「小回り」標識</td></tr>
+      <tr><th>赤い線</th><td class="n">107</td><td>原付通行禁止</td></tr>
+      <tr><th>緑の線</th><td class="n">1107</td><td>歩行者用道路。実線は終日、破線は時間帯指定</td></tr>
+    </table>
+
     <h3>この地図に入っているもの</h3>
     <table class="facts">
       <tr><th>二段階右折</th><td class="n">632</td><td>車両通行帯3以上＋信号。標識が無くても義務</td></tr>
       <tr><th>二段階右折 標識</th><td class="n">3</td><td>標識による指定</td></tr>
       <tr><th>小回り 標識</th><td class="n">508</td><td>二段階右折をしてはいけない交差点</td></tr>
-      <tr><th>原付通行禁止</th><td class="n">108</td><td>六甲山系の土日祝規制・夜間規制など</td></tr>
+      <tr><th>原付通行禁止</th><td class="n">107</td><td>六甲山系の土日祝規制・夜間規制など</td></tr>
       <tr><th>自動車専用道路</th><td class="n">1753</td><td>阪神高速・第二神明・山麓バイパスなど</td></tr>
       <tr><th>歩行者用道路</th><td class="n">1107</td><td>原付を含む車両が進入できない道。通学路は時間帯指定が多い</td></tr>
     </table>
@@ -227,6 +237,6 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js"></script>
-<script src="app.js?v=20260917044821"></script>
+<script src="app.js?v=20260917060136"></script>
 </body>
 </html>

@@ -475,7 +475,7 @@ ready.then(function(a){
     PTS.push(p);
     var k = gkey(p.x,p.y); (grid[k]||(grid[k]=[])).push(p);
   });
-  buildBanIndex(); forceJapaneseLabels(); boostNightLabels(); boostNightRoads(); fixOneway(); addNightPoi(); addLayers(); buildChips(); hideToast();
+  attachApproachBearings(); buildBanIndex(); forceJapaneseLabels(); boostNightLabels(); boostNightRoads(); fixOneway(); addNightPoi(); addLayers(); buildChips(); hideToast();
 }).catch(function(e){ console.error(e); toast('データを読み込めませんでした'); });
 
 var banGrid={};
@@ -483,6 +483,38 @@ var banGrid={};
    件数は 107 に対して 1,107 で、実際にはこちらが大半（商店街・通学路）。
    Valhalla は日本の歩行者用道路指定を知らないので、こちらで避けるしかない。
    線分は 1,061 -> 2,868 に増えるが、散らばっているのでセルあたりの最大は 25 のまま。 */
+/* 二段階右折が要るかどうかは「どの方向から交差点に入るか」で決まる。
+   同じ交差点でも、片側3車線の道から右折するときだけ義務で、
+   交差する細い道から右折するなら関係ない。
+   進入路の線（two_stage_likely_line）はその方向を持っているので、
+   線の向きを終端にある点に移しておき、経路判定で使う。 */
+function bearingOf(a, b){
+  var la=(a[1]+b[1])/2*Math.PI/180;
+  var x=(b[0]-a[0])*Math.cos(la), y=(b[1]-a[1]);
+  return (Math.atan2(x,y)*180/Math.PI+360)%360;
+}
+function angDiff(a, b){ var d=Math.abs(a-b)%360; return d>180?360-d:d; }
+function attachApproachBearings(){
+  var ends=[];
+  DATA.features.forEach(function(f){
+    if(f.properties.layer!=='two_stage_likely_line') return;
+    var cs=f.geometry.coordinates;
+    if(!cs||cs.length<2) return;
+    ends.push({c:cs[cs.length-1], b:bearingOf(cs[0], cs[cs.length-1])});
+  });
+  var n=0;
+  DATA.features.forEach(function(f){
+    if(f.properties.layer!=='two_stage_likely') return;
+    var c=f.geometry.coordinates, best=null;
+    for(var i=0;i<ends.length;i++){
+      var d=meters(c, ends[i].c);
+      if(d<=25 && (!best||d<best.d)) best={d:d,b:ends[i].b};
+    }
+    if(best){ f.properties.brg=best.b; n++; }
+  });
+  return n;
+}
+
 function buildBanIndex(){
   DATA.features.forEach(function(f){
     var ly=f.properties.layer;
@@ -810,9 +842,19 @@ function analyse(r){
   var need=[], passBan=[], seen={};
   r.maneuvers.forEach(function(m,idx){
     if(!RIGHT_TURN[m.type] || !m.at) return;
+    /* 交差点に入ってくる自分の向き。手前およそ40mから曲がる地点への方位。 */
+    var appr=null, si=m.shapeIndex;
+    if(si!=null && si>0 && r.shape[si]){
+      var back=si, acc=0;
+      while(back>0 && acc<40){ acc+=meters(r.shape[back-1], r.shape[back]); back--; }
+      if(acc>8) appr=bearingOf(r.shape[back], r.shape[si]);
+    }
     var cands=nearPts(m.at[0],m.at[1]), best=null;
     cands.forEach(function(p){
       if(p.p.layer!=='two_stage_likely' && p.p.layer!=='two_stage_required_sign') return;
+      /* 進入方向が違えば、その地点の二段階右折は自分には関係ない。
+         標識(two_stage_required_sign)は方向を持たないので距離だけで見る。 */
+      if(appr!=null && p.p.brg!=null && angDiff(appr, p.p.brg)>50) return;
       var d=meters(m.at,[p.x,p.y]);
       if(d<=55 && (!best||d<best.d)) best={p:p,d:d};
     });
@@ -1495,6 +1537,13 @@ function startNav(){
   nav.userBearing=false;
   acquireWakeLock();
   if (!voiceOn) $('#voiceBtn').click();      // 案内は音声が主役なので自動でオンにする
+  /* 開始した瞬間に自分の位置へ寄り、進行方向に地図を回す。
+     次のGPS更新まで全体表示のままだと、走り出しで自分がどこか分からない。 */
+  map.easeTo({ center:me, zoom:17.2,
+    bearing:(nav.userBearing? map.getBearing() : headingNow(lastSpeed)),
+    pitch:(nav.userPitch!=null?nav.userPitch:60),
+    padding:{top:0,bottom:Math.round(map.getContainer().clientHeight*0.5),left:0,right:0},
+    duration:1200, essential:true });
   renderNav(nav.step, r.km*1000, nav.manAt[nav.step]||0);
   say('案内を開始します。' + (r.need.length? ('この先、二段階右折が'+r.need.length+'か所あります。') : ''));
 }
