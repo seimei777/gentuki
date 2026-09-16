@@ -1,6 +1,6 @@
-# げんつきマップ（神戸・西宮・宝塚）
+# げんつきマップ / gentuki
 
-**https://seimei777.github.io/genki-map/**
+**https://seimei777.github.io/gentuki/**
 
 原付一種（50cc以下・白ナンバー）で走るときに「ここ二段階右折？」「この道、原付入れる？」を
 **走る前に**確認できる地図。神戸市・西宮市・宝塚市に限定。
@@ -173,7 +173,7 @@ OpenStreetMap の `highway=motorway` / `moped=no` から補完した。
 ## 6. 構成
 
 ```
-genki-map/
+gentuki/
 ├ docs/               ★アプリ本体（GitHub Pages がここを配信する）
 │  ├ index.html / app.js / style.css
 │  └ data/genki.min.geojson   配信用に圧縮したデータ（1.25MB → 440KB）
@@ -194,7 +194,7 @@ genki-map/
 ローカルで動かす：
 
 ```bash
-python3 -m http.server 8731 --directory /Users/sazanamiseimei/Claude/Projects/genki-map/docs
+python3 -m http.server 8731 --directory /Users/sazanamiseimei/Claude/Projects/gentuki/docs
 ```
 
 ## 6.5 ルート探索
@@ -223,7 +223,7 @@ python3 -m http.server 8731 --directory /Users/sazanamiseimei/Claude/Projects/ge
 git add -A && git commit -m "..." && git push
 ```
 
-公開URL: https://seimei777.github.io/genki-map/
+公開URL: https://seimei777.github.io/gentuki/
 
 ### データ更新手順
 

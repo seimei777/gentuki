@@ -9,7 +9,7 @@ DST = sys.argv[2] if len(sys.argv) > 2 else 'web/data/genki.min.geojson'
 
 L = {'two_stage_likely':0,'two_stage_required_sign':1,'two_stage_forbidden':2,
      'moped_banned':3,'expressway':4,'two_stage_likely_line':5}
-CITY = {'神戸市':0,'西宮市':1,'宝塚市':2}
+CITY = {'神戸市':0,'西宮市':1,'宝塚市':2,'尼崎市':3,'伊丹市':4,'芦屋市':5,'川西市':6}
 
 def simplify(pts, tol):
     if len(pts) < 3: return pts

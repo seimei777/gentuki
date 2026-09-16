@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0e1116">
-<title>げんつきマップ ｜ 神戸・西宮・宝塚の原付ルート</title>
-<meta name="description" content="原付一種（50cc）で走れるルートを出し、二段階右折の交差点と通行禁止の道を手前で知らせる地図。神戸市・西宮市・宝塚市。">
+<title>げんつきマップ ｜ 阪神間の原付ルート</title>
+<meta name="description" content="原付一種（50cc）で走れるルートを出し、二段階右折の交差点と通行禁止の道を手前で知らせる地図。神戸・尼崎・西宮・芦屋・伊丹・宝塚・川西。">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -17,7 +17,7 @@
 
 <header id="bar">
   <h1>げんつき<em>マップ</em></h1>
-  <span class="where">神戸・西宮・宝塚／原付一種</span>
+  <span class="where">阪神間7市／原付一種</span>
   <button id="infoBtn" class="iconbtn" aria-label="ルールと出典">i</button>
 </header>
 
@@ -92,7 +92,7 @@
 <div id="info" hidden>
   <article class="doc">
     <h2>原付一種のための地図</h2>
-    <p class="lead">50cc以下の白ナンバーだけが持つ縛り——<b>二段階右折</b>と<b>入れない道路</b>——を織り込んでルートを出し、走っている間は手前で知らせます。対象は神戸市・西宮市・宝塚市。</p>
+    <p class="lead">50cc以下の白ナンバーだけが持つ縛り——<b>二段階右折</b>と<b>入れない道路</b>——を織り込んでルートを出し、走っている間は手前で知らせます。対象は神戸・尼崎・西宮・芦屋・伊丹・宝塚・川西。</p>
 
     <h3>ルートの出し方</h3>
     <p>目的地を検索するか、地図を長押しすると、そこまでの原付ルートを出します。ルート計算は原付相当のプロファイルを使うので、<b>阪神高速・第二神明・山麓バイパス・六甲北有料道路のような自動車専用道路は最初から通りません</b>。</p>
@@ -101,22 +101,22 @@
     <h3>二段階右折の条件</h3>
     <div class="rulecard"><span class="gl" data-glyph="req"></span><div>
       <h4>標識があれば、車線数に関係なく二段階</h4>
-      <p>「原動機付自転車の右折方法（二段階）」の青い標識。この3市には3か所しかありません。</p></div></div>
+      <p>「原動機付自転車の右折方法（二段階）」の青い標識。この7市には3か所しかありません。</p></div></div>
     <div class="rulecard"><span class="gl" data-glyph="est"></span><div>
       <h4>車両通行帯が3以上＋信号あり なら二段階</h4>
       <p>標識が無くても法令上こうなります。走りながら車線を数えるのは無理があるので、規制データから計算して先に出しています。</p></div></div>
     <div class="rulecard"><span class="gl" data-glyph="no"></span><div>
       <h4>「小回り」標識があれば、二段階してはいけない</h4>
-      <p>3車線以上でもこの標識が優先。3市で346か所。右折レーンから普通に曲がります。</p></div></div>
+      <p>3車線以上でもこの標識が優先。7市で498か所。右折レーンから普通に曲がります。</p></div></div>
     <div class="caution"><p>間違えると交差点右左折方法違反。反則金3,000円・違反点数1点。</p></div>
 
     <h3>この地図に入っているもの</h3>
     <table class="facts">
-      <tr><th>二段階右折（推定）</th><td class="n">477</td><td>片側3車線以上の信号交差点への進入路</td></tr>
+      <tr><th>二段階右折（推定）</th><td class="n">608</td><td>片側3車線以上の信号交差点への進入路</td></tr>
       <tr><th>二段階右折 標識</th><td class="n">3</td><td>標識による指定</td></tr>
-      <tr><th>小回り 標識</th><td class="n">346</td><td>二段階右折をしてはいけない交差点</td></tr>
-      <tr><th>原付通行禁止</th><td class="n">86</td><td>六甲山系の土日祝規制・夜間規制など</td></tr>
-      <tr><th>自動車専用道路</th><td class="n">1527</td><td>阪神高速・第二神明・山麓バイパスなど</td></tr>
+      <tr><th>小回り 標識</th><td class="n">498</td><td>二段階右折をしてはいけない交差点</td></tr>
+      <tr><th>原付通行禁止</th><td class="n">106</td><td>六甲山系の土日祝規制・夜間規制など</td></tr>
+      <tr><th>自動車専用道路</th><td class="n">1705</td><td>阪神高速・第二神明・山麓バイパスなど</td></tr>
     </table>
 
     <h3>どうやって出したか</h3>

@@ -46,7 +46,7 @@ var DATA=null, PTS=[], on={}, grid={}, GSTEP=0.004;
 /* 配信用の圧縮データを、アプリが使う形に戻す */
 var LAYER_NAME=['two_stage_likely','two_stage_required_sign','two_stage_forbidden',
                 'moped_banned','expressway','two_stage_likely_line'];
-var CITY_NAME=['神戸市','西宮市','宝塚市'];
+var CITY_NAME=['神戸市','西宮市','宝塚市','尼崎市','伊丹市','芦屋市','川西市'];
 var SRC_REG='兵庫県警/JARTIC交通規制情報';
 var SRC_EST='兵庫県警/JARTIC交通規制情報（車両通行帯＋信号機から推定）';
 var SRC_OSM='© OpenStreetMap contributors (ODbL)';

@@ -5,7 +5,11 @@ csv.field_size_limit(sys.maxsize)
 SRC='hyogo/typeD_hyogo/兵庫県警_202607_k_2.1.csv'
 CITIES=[('神戸市','%E5%85%B5%E5%BA%AB%E7%9C%8C%E7%A5%9E%E6%88%B8%E5%B8%82.geojson'),
         ('西宮市','%E5%85%B5%E5%BA%AB%E7%9C%8C%E8%A5%BF%E5%AE%AE%E5%B8%82.geojson'),
-        ('宝塚市','%E5%85%B5%E5%BA%AB%E7%9C%8C%E5%AE%9D%E5%A1%9A%E5%B8%82.geojson')]
+        ('宝塚市','%E5%85%B5%E5%BA%AB%E7%9C%8C%E5%AE%9D%E5%A1%9A%E5%B8%82.geojson'),
+        ('尼崎市','%E5%85%B5%E5%BA%AB%E7%9C%8C%E5%B0%BC%E5%B4%8E%E5%B8%82.geojson'),
+        ('伊丹市','%E5%85%B5%E5%BA%AB%E7%9C%8C%E4%BC%8A%E4%B8%B9%E5%B8%82.geojson'),
+        ('芦屋市','%E5%85%B5%E5%BA%AB%E7%9C%8C%E8%8A%A6%E5%B1%8B%E5%B8%82.geojson'),
+        ('川西市','%E5%85%B5%E5%BA%AB%E7%9C%8C%E5%B7%9D%E8%A5%BF%E5%B8%82.geojson')]
 
 def rings(geom):
     if geom['type']=='Polygon': return [geom['coordinates']]
@@ -175,7 +179,7 @@ for c in ('4','5','7'):
             'time':t,'cond':cond,'always':always,'src':'兵庫県警/JARTIC交通規制情報','uk':row['ユニークキー'],'confidence':'sign'}})
         banned+=1
 # --- OSM: 自動車専用道路・moped=no（原付進入不可） ---
-osm=json.load(open('osm_mw2.json'))['elements']
+osm=json.load(open('osm_mw7.json'))['elements']
 seen=set(); nosm=0
 for e in osm:
     t=e.get('tags',{}); g=e.get('geometry') or []
