@@ -1,5 +1,7 @@
 # げんつきマップ（神戸・西宮・宝塚）
 
+**https://seimei777.github.io/genki-map/**
+
 原付一種（50cc以下・白ナンバー）で走るときに「ここ二段階右折？」「この道、原付入れる？」を
 **走る前に**確認できる地図。神戸市・西宮市・宝塚市に限定。
 
@@ -215,8 +217,13 @@ python3 -m http.server 8731 --directory /Users/sazanamiseimei/Claude/Projects/ge
 
 ### 公開（GitHub Pages）
 
-リポジトリ設定の Pages で `main` ブランチの `/docs` を配信元にしている。
-`docs/` に push すればそのまま反映される。
+`main` ブランチの `/docs` を配信元にしている。`docs/` を変更して push すれば自動で反映される。
+
+```bash
+git add -A && git commit -m "..." && git push
+```
+
+公開URL: https://seimei777.github.io/genki-map/
 
 ### データ更新手順
 
