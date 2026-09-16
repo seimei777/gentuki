@@ -62,11 +62,20 @@ function forceJapaneseLabels(){
   }
 }
 
-/* 自前レイヤを挿し込む位置：ラベルの下、道路の上 */
+/* 自前レイヤを挿し込む位置：ラベルの下、道路の上。
+   「最初の symbol レイヤ」を基準にしてはいけない。夜スタイル(dark)では
+   index 8 の water_name が最初の symbol で、道路レイヤ18個すべてがその後ろに来る。
+   そこを基準にすると自前レイヤが道路の下に潜って見えなくなる。
+   道路の geometry を最後まで数えてから、その先の最初のラベルを基準にする。 */
 function firstSymbolLayerId(){
-  var layers = map.getStyle().layers || [];
-  for (var i=0;i<layers.length;i++) if (layers[i].type==='symbol') return layers[i].id;
-  return undefined;
+  var layers = map.getStyle().layers || [], lastRoad = -1;
+  for (var i=0;i<layers.length;i++){
+    if (layers[i]['source-layer']==='transportation') lastRoad = i;
+  }
+  for (var j=lastRoad+1;j<layers.length;j++){
+    if (layers[j].type==='symbol') return layers[j].id;
+  }
+  return undefined;   // 道路より上にラベルが無ければ最前面へ
 }
 
 function setTheme(t){
@@ -1088,6 +1097,7 @@ function startNav(){
   });
   document.body.dataset.nav='1';
   $('#navBand').hidden=false; $('#navBar').hidden=false; $('#navRecenter').hidden=true;
+  syncNavHeight();                      // 表示してから測る（隠れている間は 0 になる）
   $('#route').hidden=true; $('#sheet').hidden=true;
   nav.userBearing=false;
   acquireWakeLock();
@@ -1099,6 +1109,7 @@ function stopNav(){
   nav.on=false; nav.r=null; nav.follow=true;
   document.body.dataset.nav='';
   $('#navBand').hidden=true; $('#navBar').hidden=true; $('#navRecenter').hidden=true;
+  syncNavHeight();
 
   releaseWakeLock();
   try{ speechSynthesis.cancel(); }catch(e){}
@@ -1265,8 +1276,24 @@ function headingNow(speed){
 function onDeviceOrientation(e){
   var h = (e.webkitCompassHeading!=null) ? e.webkitCompassHeading
         : (e.absolute && e.alpha!=null ? (360 - e.alpha) : null);
-  if (h!=null && isFinite(h)) deviceHeading = (h+360)%360;
+  if (h!=null && isFinite(h)){ deviceHeading = (h+360)%360; queuePuck(); }
 }
+
+/* 青いドットの扇の向き。走っていれば GPS の進行方向、止まっていれば端末のコンパス。
+   止まっていると GPS の fix がほとんど来ないので、GPS 側だけで更新してはいけない。
+   センサーは秒間数十回飛んでくるので、描画は次のフレームに1回だけまとめる。 */
+var puckRaf=0;
+function updatePuck(){
+  puckRaf=0;
+  if (!meMarker) return;
+  var el=meMarker.getElement();
+  var h = (lastSpeed!=null && lastSpeed>2 && lastHeading!=null) ? lastHeading
+        : (deviceHeading!=null ? deviceHeading : lastHeading);
+  if (h==null){ el.classList.remove('has-hd'); return; }
+  el.style.setProperty('--hd', h.toFixed(1)+'deg');
+  el.classList.add('has-hd');
+}
+function queuePuck(){ if (!puckRaf) puckRaf=requestAnimationFrame(updatePuck); }
 function enableCompass(){
   if (compassOn) return;
   compassOn=true;
@@ -1366,18 +1393,12 @@ function startLocate(cb){
         .setLngLat(c).addTo(map);
       if(!dest && locMode===0) map.easeTo({center:me,zoom:Math.max(map.getZoom(),15)});
     } else meMarker.setLngLat(c);
-    // 方位：停止中の heading は暴れるので速度が出ているときだけ更新する
-    var el2=meMarker.getElement();
-    if (hd!=null && isFinite(hd) && sp>1.5){
-      lastHeading=hd;
-      el2.style.setProperty('--hd', hd+'deg');
-      el2.classList.add('has-hd');
-    } else if (lastHeading==null){
-      el2.classList.remove('has-hd');
-    }
+    // 方位：停止中の GPS heading は暴れるので、速度が出ているときだけ採用する
+    if (hd!=null && isFinite(hd) && sp>1.5) lastHeading=hd;
     // 精度が悪いときは灰色にして正直に伝える
-    el2.classList.toggle('weak', acc>65);
+    meMarker.getElement().classList.toggle('weak', acc>65);
     lastSpeed=sp;
+    updatePuck();
     applyFollow(c, lastHeading, sp);
     if(first){ first=false; if(cb) cb(); }
     checkNear();
@@ -1414,10 +1435,11 @@ function stopLocate(){
   alertBox.hidden=true;
 }
 $('#locBtn').addEventListener('click',function(){
+  /* iOS は方角センサーの許可をタップの中でしか求められないので、ここで有効化する。
+     進行方向モードに入る時だけでは、止まっている間ドットの向きが分からない。 */
+  enableCompass();
   if (watch==null){ startLocate(function(){ setLocMode(1); }); setLocMode(1); return; }
-  var next = locMode===1 ? 2 : 1;
-  if (next===2) enableCompass();
-  setLocMode(next);
+  setLocMode(locMode===1 ? 2 : 1);
 });
 /* 長押しで現在地をオフ */
 (function(){
@@ -1539,6 +1561,20 @@ if (window.visualViewport){
 }
 window.addEventListener('orientationchange', function(){ setTimeout(syncSafeBottom,300); });
 syncSafeBottom();
+
+/* ナビ中の下バーの高さを測って CSS に渡す。右下のボタンをその分だけ持ち上げる。
+   残り距離の桁が増えたり、狭い画面で折り返したりで高さが変わるので実測する。 */
+function syncNavHeight(){
+  var el=$('#navBar');
+  var h = (el && !el.hidden && document.body.dataset.nav==='1') ? el.offsetHeight : 0;
+  document.documentElement.style.setProperty('--navh', h+'px');
+}
+if (window.ResizeObserver){
+  new ResizeObserver(syncNavHeight).observe($('#navBar'));
+} else {
+  window.addEventListener('resize', syncNavHeight);
+}
+syncNavHeight();
 
 updateCompass(); updatePitchBtn();
 makeDraggable($('#sheet'));
