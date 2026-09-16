@@ -1,6 +1,31 @@
 /* げんつきマップ — 神戸・西宮・宝塚 / 原付一種のルート＆規制ビューア */
 'use strict';
 
+/* index.html だけは版を付けられないので、端末に古いものが残ると
+   いつまでも古い app.js を読み続ける（GitHub Pages は max-age=600）。
+   起動時に実物を見に行き、自分と違う版なら読み直す。
+   ただの reload だと同じキャッシュを引いて無限に繰り返しうるので、
+   URL に版を付けて別アドレスとして取り直す。
+   一度試した版は控えておき、それでも変わらなければ諦める。 */
+(function(){
+  var tag=document.querySelector('script[src*="app.js"]');
+  if(!tag) return;
+  var m=tag.src.match(/v=(\d+)/); if(!m) return;
+  var mine=m[1];
+  fetch('index.html?_='+Date.now(), {cache:'no-store'})
+    .then(function(r){ return r.ok ? r.text() : null; })
+    .then(function(t){
+      if(!t) return;
+      var lm=t.match(/app\.js\?v=(\d+)/); if(!lm) return;
+      var latest=lm[1];
+      if(latest===mine) return;
+      var tried=null; try{ tried=sessionStorage.getItem('gentuki.vtry'); }catch(e){}
+      if(tried===latest) return;               // 一度試してだめならもう繰り返さない
+      try{ sessionStorage.setItem('gentuki.vtry', latest); }catch(e){}
+      location.replace(location.pathname+'?v='+latest+location.hash);
+    }).catch(function(){});
+})();
+
 var C = { amber:'#f5871f', blue:'#1a73e8', danger:'#ea4335', express:'#b31412',
           grey:'#9aa0a6', route:'#1a73e8', routeCasing:'#1557b0', ped:'#1f8a4c' };
 var VALHALLA = 'https://valhalla1.openstreetmap.de/route';
