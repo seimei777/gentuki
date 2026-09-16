@@ -107,34 +107,36 @@ var NIGHT_ROAD={
   highway_path:            '#26272b',
   road_pier:               '#26272b'
 };
+/* 一方通行の矢印。昼夜どちらでも効かせる。 */
+var ONEWAY_SIZE=['interpolate',['linear'],['zoom'],14,0.85,17,1.35,19,1.9];
+function boostOneway(){
+  [['road_oneway',0],['road_oneway_opposite',180],
+   ['road_one_way_arrow',0],['road_one_way_arrow_opposite',180]].forEach(function(a){
+    if(!map.getLayer(a[0])) return;
+    try{
+      map.setLayoutProperty(a[0],'visibility','visible');
+      map.setLayoutProperty(a[0],'icon-image','oneway');   // 昼の arrow は小さすぎる
+      map.setLayoutProperty(a[0],'icon-rotate',a[1]);
+      map.setLayoutProperty(a[0],'icon-size',ONEWAY_SIZE);
+      map.setLayoutProperty(a[0],'symbol-spacing',130);
+      map.setPaintProperty(a[0],'icon-opacity',1);
+    }catch(e){}
+  });
+}
+
 function boostNightRoads(){
   if (theme!=='night') return;
   Object.keys(NIGHT_ROAD).forEach(function(id){
     if(!map.getLayer(id)) return;
     try{ map.setPaintProperty(id,'line-color',NIGHT_ROAD[id]); }catch(e){}
   });
-  /* 一方通行の矢印。元からあるレイヤーはスプライトの rgb(112,106,106) の
-     細い矢印（不透明画素は21x21中80個）で、暗い地図では埋もれる。
-     SDFではないので色を変えられないため、文字で自前に描いて色を付ける。 */
-  ['road_oneway','road_oneway_opposite'].forEach(function(id){
-    if(map.getLayer(id)){ try{ map.setLayoutProperty(id,'visibility','none'); }catch(e){} }
-  });
-  if (!map.getSource('openmaptiles')) return;
-  [['gk_oneway', 1, '→'], ['gk_oneway_rev', -1, '←']].forEach(function(a){
-    if (map.getLayer(a[0])) return;
-    try{
-      map.addLayer({ id:a[0], type:'symbol', source:'openmaptiles',
-        'source-layer':'transportation', minzoom:14,
-        filter:['==',['get','oneway'],a[1]],
-        layout:{ 'symbol-placement':'line', 'symbol-spacing':120,
-                 'text-field':a[2], 'text-font':['Noto Sans Regular'],
-                 'text-size':['interpolate',['linear'],['zoom'],14,18,17,26,19,34],
-                 'text-rotation-alignment':'map', 'text-pitch-alignment':'map',
-                 'text-keep-upright':false, 'text-padding':1 },
-        paint:{ 'text-color':'#bcd6f2', 'text-halo-color':'rgba(0,0,0,0.95)',
-                'text-halo-width':1.8 }});
-    }catch(e){}
-  });
+  /* 一方通行の矢印は元からあるレイヤーをそのまま使う（線の上に正しく乗る）。
+     文字で描くとベースライン基準になり、道の横にずれる。
+     問題は大きさだけだった。
+       昼 arrow  : 10x7 で不透明画素は16個しかない極小の矢印
+       夜 oneway : 21x21 で80画素、ただし icon-opacity が 0.5
+     昼夜とも大きい方の oneway アイコンを使い、拡大して不透明にする。
+     boostOneway() はテーマに依らず呼ぶので、ここでは呼ばない。 */
 }
 
 /* 夜のスタイルには poi レイヤーが1つも定義されておらず、店や施設の名前が
@@ -190,7 +192,7 @@ function setTheme(t){
   document.body.dataset.theme=t;
   map.setStyle(BASEMAP[t]);
   map.once('styledata', function(){       // MapLibre は style.load を発火しないので styledata を使う
-    forceJapaneseLabels(); boostNightLabels(); boostNightRoads(); addNightPoi();
+    forceJapaneseLabels(); boostNightLabels(); boostNightRoads(); boostOneway(); addNightPoi();
     if (DATA) addLayers();                // ソース・レイヤはスタイル差し替えで消えるので貼り直す
   });
 }
@@ -425,7 +427,7 @@ ready.then(function(a){
     PTS.push(p);
     var k = gkey(p.x,p.y); (grid[k]||(grid[k]=[])).push(p);
   });
-  buildBanIndex(); forceJapaneseLabels(); boostNightLabels(); boostNightRoads(); addNightPoi(); addLayers(); buildChips(); hideToast();
+  buildBanIndex(); forceJapaneseLabels(); boostNightLabels(); boostNightRoads(); boostOneway(); addNightPoi(); addLayers(); buildChips(); hideToast();
 }).catch(function(e){ console.error(e); toast('データを読み込めませんでした'); });
 
 var banGrid={};
