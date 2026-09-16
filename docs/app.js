@@ -1646,11 +1646,13 @@ function startNav(){
   if (!voiceOn) $('#voiceBtn').click();      // 案内は音声が主役なので自動でオンにする
   /* 開始した瞬間に自分の位置へ寄り、進行方向に地図を回す。
      次のGPS更新まで全体表示のままだと、走り出しで自分がどこか分からない。 */
+  var camMs=1200;
+  nav.camHold=Date.now()+camMs+150;        // この間はコンパスでカメラを触らない
   map.easeTo({ center:me, zoom:17.2,
     bearing:(nav.userBearing? map.getBearing() : headingNow(lastSpeed)),
     pitch:(nav.userPitch!=null?nav.userPitch:60),
     padding:{top:0,bottom:Math.round(map.getContainer().clientHeight*0.5),left:0,right:0},
-    duration:1200, essential:true });
+    duration:camMs, essential:true });
   renderNav(nav.step, r.km*1000, nav.manAt[nav.step]||0);
   /* 方角センサーが使えないと、止まっている間は地図が向きに追従できない */
   setTimeout(function(){
@@ -1812,6 +1814,12 @@ $('#navStart').addEventListener('click', startNav);
 $('#navEnd').addEventListener('click', stopNav);
 $('#navRecenter').addEventListener('click', function(){
   nav.follow=true; nav.userBearing=false; nav.userPitch=null; this.hidden=true;
+  if (me){                                  // 開始時と同じ寄り方で戻す
+    nav.camHold=Date.now()+950;
+    map.easeTo({ center:me, zoom:17.2, bearing:headingNow(lastSpeed), pitch:60,
+      padding:{top:0,bottom:Math.round(map.getContainer().clientHeight*0.5),left:0,right:0},
+      duration:800, essential:true });
+  }
 });
 map.on('dragstart', function(e){
   if (nav.on && e && e.originalEvent){ nav.follow=false; $('#navRecenter').hidden=false; }
@@ -1857,6 +1865,9 @@ var camRaf=0;
 function updateCam(){
   camRaf=0;
   if (!nav.on || !nav.follow || nav.userBearing) return;
+  /* 開始直後の寄りアニメーションを潰さない。コンパスは毎秒何十回も来るので、
+     向きだけの easeTo が割り込むと center/zoom/pitch の動きごと中断される。 */
+  if (nav.camHold && Date.now() < nav.camHold) return;
   if (lastSpeed!=null && lastSpeed>2) return;      // 走行中は navUpdate 側に任せる
   if (deviceHeading==null) return;
   var cur=map.getBearing(), d=((deviceHeading-cur+540)%360)-180;
