@@ -1671,7 +1671,7 @@ function startNav(){
   if (!r) return;
   if (!me){ toast('先に現在地をオンにしてください',4000); startLocate(function(){ startNav(); }); return; }
   nav.on=true; nav.r=r; nav.said={}; nav.banSaid={}; nav.off=0; nav.lastIdx=null; nav.follow=true;
-  nav.northUp=false; nav.userZoom=null;
+  nav.northUp=false; nav.userZoom=null; setTimeout(updateCompass,0);
   /* 最初の案内は「出発」なので、表示は最初の曲がり角から始める */
   nav.step = (r.maneuvers[0] && r.maneuvers[0].type<=3 && r.maneuvers.length>1) ? 1 : 0;
   nav.cum = cumulative(r.shape);
@@ -1849,6 +1849,7 @@ $('#navStart').addEventListener('click', startNav);
 $('#navEnd').addEventListener('click', stopNav);
 $('#navRecenter').addEventListener('click', function(){
   nav.follow=true; nav.userBearing=false; nav.userPitch=null; nav.userZoom=null; nav.northUp=false; this.hidden=true;
+  updateCompass();
   if (me){                                  // 開始時と同じ寄り方で戻す
     nav.camHold=Date.now()+950;
     map.easeTo({ center:me, zoom:17.2, bearing:headingNow(lastSpeed), pitch:60,
@@ -1860,7 +1861,7 @@ map.on('dragstart', function(e){
 });
 /* ナビ中に自分で回したら、その向きを尊重する（再センターで戻る） */
 map.on('rotatestart', function(e){
-  if (nav.on && e && e.originalEvent){ nav.userBearing=true; $('#navRecenter').hidden=false; }
+  if (nav.on && e && e.originalEvent){ nav.userBearing=true; $('#navRecenter').hidden=false; updateCompass(); }
 });
 map.on('zoomstart', function(e){
   if (nav.on && e && e.originalEvent) nav.userZoom=null;      // 一旦外して
@@ -1981,20 +1982,19 @@ function updateCompass(){
   var b=map.getBearing(), p=map.getPitch();
   var el=$('#compass');
   if (!el) return;
-  /* ナビ中は常に出す。北固定＋2Dにすると bearing も pitch も 0 になり、
-     消えてしまって進行方向モードへ戻せなくなる。 */
-  el.hidden = nav.on ? false : (Math.abs(b)<0.5 && p<1);
+  /* ナビ中は自分で地図を回したときだけ出す。
+     進行方向に追従している間は「戻す先」が無く、押しても何も起きない
+     ボタンになってしまう。Googleマップも同じで、回したときだけ出る。 */
+  el.hidden = nav.on ? !nav.userBearing : (Math.abs(b)<0.5 && p<1);
   el.querySelector('.cmp-needle').style.transform='rotate('+(-b)+'deg)';
 }
 map.on('rotate', updateCompass);
 map.on('pitch', updateCompass);
 $('#compass').addEventListener('click',function(){
   if (nav.on){
-    /* ナビ中は「進行方向に戻す」だけ。押すたびに北固定と切り替わる作りにしたら、
-       一度押すと回らなくなって戻し方が分からない、という状態になっていた。
-       Googleマップも案内中は進行方向に戻すだけ。 */
-    nav.userBearing=false; nav.northUp=false; nav.camHold=0;
-    queueCam();
+    /* 進行方向に戻して、自分は引っ込む。戻す先が無くなるので出しておく意味がない。 */
+    nav.userBearing=false; nav.camHold=0;
+    queueCam(); updateCompass();
     return;
   }
   if (locMode===2) setLocMode(1);
