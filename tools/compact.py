@@ -9,7 +9,7 @@ DST = sys.argv[2] if len(sys.argv) > 2 else 'web/data/genki.min.geojson'
 
 L = {'two_stage_likely':0,'two_stage_required_sign':1,'two_stage_forbidden':2,
      'moped_banned':3,'expressway':4,'two_stage_likely_line':5}
-CITY = {'神戸市':0,'西宮市':1,'宝塚市':2,'尼崎市':3,'伊丹市':4,'芦屋市':5,'川西市':6}
+CITY = {'神戸市':0,'西宮市':1,'宝塚市':2,'尼崎市':3,'伊丹市':4,'芦屋市':5,'川西市':6,'池田市':7}
 
 def simplify(pts, tol):
     if len(pts) < 3: return pts
@@ -42,6 +42,12 @@ for f in src['features']:
     if lay in ('two_stage_likely','two_stage_likely_line'):
         if p.get('lanes'): q['n'] = int(p['lanes'])
         if p.get('koma') is not None: q['k'] = p['koma']
+        if p.get('osm') is not None: q['o'] = p['osm']      # OSMの片側車線数
+        if p.get('road'):
+            r = p['road']
+            if r not in tindex:
+                tindex[r] = len(titles); titles.append(r)
+            q['r'] = tindex[r]
     if lay in ('moped_banned','expressway'):
         t = p.get('title') or ''
         if t not in tindex:

@@ -86,7 +86,7 @@ var DATA=null, PTS=[], on={}, grid={}, GSTEP=0.004, lastRouteGeo=null;
 /* 配信用の圧縮データを、アプリが使う形に戻す */
 var LAYER_NAME=['two_stage_likely','two_stage_required_sign','two_stage_forbidden',
                 'moped_banned','expressway','two_stage_likely_line'];
-var CITY_NAME=['神戸市','西宮市','宝塚市','尼崎市','伊丹市','芦屋市','川西市'];
+var CITY_NAME=['神戸市','西宮市','宝塚市','尼崎市','伊丹市','芦屋市','川西市','池田市'];
 var SRC_REG='兵庫県警/JARTIC交通規制情報';
 var SRC_EST='兵庫県警/JARTIC交通規制情報（車両通行帯＋信号機から推定）';
 var SRC_OSM='© OpenStreetMap contributors (ODbL)';
@@ -99,7 +99,10 @@ function expand(doc){
     if (q.k!=null) p.koma = q.k;
     if(lay==='two_stage_likely'||lay==='two_stage_likely_line'){
       p.title='二段階右折（推定）片側'+(q.n||3)+'車線';
-      p.detail='車両通行帯が3以上の信号交差点への進入路。原付一種はこの方向から右折するとき二段階右折。※推定（現地の標識が優先）';
+      p.strong = (q.o!=null && q.o>=3);            // OSMの車線数でも裏が取れたもの
+      p.detail = p.strong
+        ? '車両通行帯が3以上の信号交差点への進入路。OpenStreetMapの車線数とも一致しています。原付一種はこの方向から右折するとき二段階右折。'
+        : '車両通行帯が3以上の信号交差点への進入路（県警データ）。ただし地図データ側の車線数では裏が取れていません。交差点で右折レーンが増える場所はこうなります。現地の標識と車線を必ず確認してください。';
       p.src=SRC_EST; p.confidence='estimated';
     } else if(lay==='two_stage_required_sign'){
       p.title='二段階右折 指定（標識あり）';
@@ -130,7 +133,7 @@ function expand(doc){
 
 var styleReady = new Promise(function(res){ map.once('load', res); });
 var ready = Promise.all([
-  fetch('data/genki.min.geojson?v=3').then(function(r){ return r.json(); }).then(expand),
+  fetch('data/genki.min.geojson?v=4').then(function(r){ return r.json(); }).then(expand),
   styleReady
 ]);
 ready.then(function(a){
@@ -231,7 +234,9 @@ function addLayers(){
     paint:{'circle-radius':['interpolate',['linear'],['zoom'],11.5,3.5,14,6.5,17,12],
            'circle-color':'#fff',
            'circle-stroke-width':['interpolate',['linear'],['zoom'],11.5,2,17,3.5],
-           'circle-stroke-color':['case',['has','koma'],C.grey,C.amber]}});
+           'circle-stroke-color':['case',['has','koma'],C.grey,C.amber],
+           'circle-opacity':['case',['get','strong'],1,0.75],
+           'circle-stroke-opacity':['case',['get','strong'],1,0.55]}});
   add({id:'ts_sign',type:'circle',source:'g',filter:['==',['get','layer'],'two_stage_required_sign'],
     minzoom:10,
     paint:{'circle-radius':['interpolate',['linear'],['zoom'],11,6,17,14],'circle-color':C.amber,
@@ -694,7 +699,9 @@ function openSheet(p, lngLat){
   $('#sDetail').textContent=p.detail||'';
   var rows=[];
   if(p.city) rows.push(['市',p.city]);
-  if(p.lanes) rows.push(['車両通行帯',p.lanes+' 以上']);
+  if(p.lanes) rows.push(['車両通行帯（県警データ）',p.lanes]);
+  if(p.osm!=null) rows.push(['車線数（OSM）','片側 '+p.osm+' 車線'+(p.osm>=3?'（一致）':'（不一致）')]);
+  if(p.road) rows.push(['道路',p.road]);
   if(p.time) rows.push(['規制時間',p.time]);
   if(p.cond) rows.push(['条件',p.cond]);
   if(p.koma!=null&&p.koma!=='') rows.push(['注記','約'+p.koma+'m先に小回り標識あり。現地の標識が優先']);
@@ -865,7 +872,9 @@ function startNav(){
   var r = showingAlt? altData : routeData;
   if (!r) return;
   if (!me){ toast('先に現在地をオンにしてください',4000); startLocate(function(){ startNav(); }); return; }
-  nav.on=true; nav.r=r; nav.step=0; nav.said={}; nav.banSaid={}; nav.off=0; nav.lastIdx=null; nav.follow=true;
+  nav.on=true; nav.r=r; nav.said={}; nav.banSaid={}; nav.off=0; nav.lastIdx=null; nav.follow=true;
+  /* 最初の案内は「出発」なので、表示は最初の曲がり角から始める */
+  nav.step = (r.maneuvers[0] && r.maneuvers[0].type<=3 && r.maneuvers.length>1) ? 1 : 0;
   nav.cum = cumulative(r.shape);
   nav.manAt = r.maneuvers.map(function(m){
     var i=Math.min(m.shapeIndex!=null?m.shapeIndex:0, nav.cum.length-1);
@@ -877,7 +886,7 @@ function startNav(){
   nav.userBearing=false;
   acquireWakeLock();
   if (!voiceOn) $('#voiceBtn').click();      // 案内は音声が主役なので自動でオンにする
-  renderNav(0, r.km*1000, 0);
+  renderNav(nav.step, r.km*1000, nav.manAt[nav.step]||0);
   say('案内を開始します。' + (r.need.length? ('この先、二段階右折が'+r.need.length+'か所あります。') : ''));
 }
 function stopNav(){
@@ -920,7 +929,8 @@ function navUpdate(pos){
 
   /* --- 進行状況 --- */
   var total=nav.cum[nav.cum.length-1];
-  while (nav.step < nav.manAt.length-1 && p.along > nav.manAt[nav.step]+12) nav.step++;
+  while (nav.step < nav.manAt.length-1 &&
+         (p.along > nav.manAt[nav.step]+12 || r.maneuvers[nav.step].type<=3)) nav.step++;
   var toMan = Math.max(0, nav.manAt[nav.step]-p.along);
   var remain = Math.max(0, total-p.along);
   renderNav(nav.step, remain, toMan);
@@ -978,6 +988,7 @@ function renderNav(step, remainM, toManM){
   })();
   var r=nav.r; if(!r) return;
   var m=r.maneuvers[step]||{};
+  if (m.type<=3 && r.maneuvers[step+1]){ step=step+1; m=r.maneuvers[step]; }  // 「出発」は表示しない
   var two=(r.need||[]).filter(function(n){ return n.mi===step; })[0];
   $('#navIcon').textContent = two? '↱' : (MICON[m.type]||'↑');
   $('#navDist').textContent = navDistText(toManM);
