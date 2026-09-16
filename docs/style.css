@@ -5,7 +5,8 @@
   --route:#1a73e8;
   --jp:"Zen Kaku Gothic New","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
   --num:"Barlow Semi Condensed","Zen Kaku Gothic New",system-ui,sans-serif;
-  --sb:env(safe-area-inset-bottom,0px);
+  --vvb:0px;
+  --sb:max(env(safe-area-inset-bottom,0px), var(--vvb));
 }
 *{box-sizing:border-box}
 [hidden]{display:none!important}
@@ -295,3 +296,20 @@ body[data-nav="1"] #compass{display:none}
 
 /* 検索候補は入力中も出るので、少し詰めて件数を見せる */
 #results li{padding:10px 12px}
+
+/* ナビ：次の次の案内 */
+.nb-next{margin-top:8px;font-size:12.5px;font-weight:700;opacity:.8;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nb-next:empty{display:none}
+
+/* ナビ：原付通行禁止への接近 */
+#navBan{position:fixed;z-index:11;left:12px;right:12px;
+  top:calc(max(10px,env(safe-area-inset-top)) + 118px);
+  background:var(--danger);color:#fff;font-size:13px;font-weight:800;
+  padding:10px 14px;border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,.4)}
+
+/* ナビ下部：残りの二段階右折 */
+#navBar{flex-wrap:wrap}
+.nb-left{flex:1 0 100%;font-size:12px;font-weight:800;color:var(--amber);
+  margin:0 0 8px;text-align:center}
+.nb-left:empty{display:none}

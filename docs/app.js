@@ -396,8 +396,10 @@ function valhalla(from, to, exclude, heading){
     costing:'motor_scooter',
     costing_options:{ motor_scooter:{
       top_speed:30,            // 法定速度。これを超える道を避ける効果も持つ
-      use_primary:0.2,         // 幹線を避ける（既定0.5）。速度差が原付には危険
-      use_hills:0.25,          // 登坂力が低いので坂を避ける（既定0.5）
+      use_primary:0.35,        // 幹線を軽く避ける。0.2まで下げると国道428号を避けて
+                               // 三宮→谷上が13.7km→22.2kmになったので効かせすぎない
+      use_hills:0.4,           // 登坂力を考慮（FOSSGISの公開インスタンスでは標高データが
+                               // 無いようで実測では効いていない）
       use_tracks:0.1,          // 既定0.5だと未舗装の農道に入りうる
       use_living_streets:0.3,
       use_highways:0, use_tolls:0,
@@ -462,7 +464,7 @@ function analyse(r){
   });
   // 原付通行禁止区間との「重なり」判定（並行する別の道を拾わないよう線分距離で見る）
   // 出発・到着の前後120mは地点スナップの影響が出るので除外する
-  var hits={}, keep={}, n0=r.shape.length;
+  var hits={}, keep={}, hitPts={}, n0=r.shape.length;
   var skipHead=0, skipTail=n0-1, acc=0;
   for(var k=1;k<n0;k++){ acc+=meters(r.shape[k-1],r.shape[k]); if(acc>120){ skipHead=k; break; } }
   acc=0;
@@ -474,7 +476,10 @@ function analyse(r){
       for(var n=0;n<segs.length;n++){
         var sg=segs[n], id=sg.p.uk||sg.p.title;
         if(touched[id]) continue;
-        if(distToSeg(c, sg.a, sg.b) <= 12){ touched[id]=1; hits[id]=(hits[id]||0)+1; keep[id]=sg.p; }
+        if(distToSeg(c, sg.a, sg.b) <= 12){
+          touched[id]=1; hits[id]=(hits[id]||0)+1; keep[id]=sg.p;
+          (hitPts[id]||(hitPts[id]=[])).push(c);
+        }
       }
     }
   }
@@ -497,6 +502,32 @@ function requestRoute(){
     console.error(e); toast('ルートを計算できませんでした。少し時間をおいて試してください',5000);
   });
 }
+/* Valhalla の motor_scooter は自動車専用道路は避けるが、
+   公安委員会の二輪通行禁止（県警データ側）は知らない。
+   終日禁止の区間と重なっていたら、その地点を除外して取り直す。 */
+function avoidBannedIfNeeded(){
+  if (!routeData || !routeData.banPts || !routeData.banPts.length) return;
+  var ex=routeData.banPts.slice(0,50);          // Valhalla の exclude_locations は上限50
+  var before=routeData.km;
+  toast('原付が通れない区間を避けて計算し直しています…',0);
+  valhalla(me, dest, ex).then(function(r2){
+    var a2=analyse(r2);
+    var stillBanned=a2.passBan.filter(function(p){ return p.always; }).length;
+    var wasBanned=routeData.passBan.filter(function(p){ return p.always; }).length;
+    hideToast();
+    if (stillBanned < wasBanned && a2.km < before*1.35){   // 35%以上遠回りになるなら
+                                                          // 迂回せず警告に留める
+      routeData=a2; showingAlt=false; altData=null;
+      drawRoute(routeData); renderRoute(routeData,false);
+      if (routeData.need.length) prepareAlternative();
+      toast('原付が通れない区間を避けたルートに差し替えました（+'+
+            (Math.round((a2.km-before)*10)/10)+'km）', 6000);
+    } else if (stillBanned < wasBanned){
+      toast('禁止区間を避けると大きく遠回りになるため、元のルートのまま警告を出しています',7000);
+    }
+  }).catch(function(){ hideToast(); });
+}
+
 function prepareAlternative(){
   var ex=routeData.need.map(function(n){ return [n.pt.x, n.pt.y]; });
   var note=$('#avoidNote'); note.textContent='計算中…';
@@ -786,8 +817,22 @@ var MICON={1:'↑',2:'↑',3:'↑',4:'◉',5:'◉',6:'◉',7:'↑',8:'↑',
   17:'↑',18:'↗',19:'↖',20:'↗',21:'↖',22:'↑',23:'↗',24:'↖',
   25:'⤭',26:'⟳',27:'⟳',37:'⤭',38:'⤭'};
 
-var nav = { on:false, r:null, cum:[], manAt:[], step:0, said:{}, off:0,
+var nav = { on:false, r:null, cum:[], manAt:[], step:0, said:{}, banSaid:{}, off:0,
             lastReroute:0, wakeLock:null, follow:true };
+
+/* 現在地から一定距離以内にある原付通行禁止区間を探す */
+function nearestBan(c, rad){
+  var kx=Math.floor(c[0]/GSTEP), ky=Math.floor(c[1]/GSTEP), best=null;
+  for (var i=-1;i<=1;i++) for (var j=-1;j<=1;j++){
+    var segs=banGrid[(kx+i)+'|'+(ky+j)]; if(!segs) continue;
+    for (var n=0;n<segs.length;n++){
+      var d=distToSeg(c, segs[n].a, segs[n].b);
+      if (d<=rad && (!best || d<best.d))
+        best={d:d, p:segs[n].p, id:(segs[n].p.uk||segs[n].p.title)};
+    }
+  }
+  return best;
+}
 
 function navDistText(m){
   if (m>=1000) return (Math.round(m/100)/10)+' km';
@@ -820,7 +865,7 @@ function startNav(){
   var r = showingAlt? altData : routeData;
   if (!r) return;
   if (!me){ toast('先に現在地をオンにしてください',4000); startLocate(function(){ startNav(); }); return; }
-  nav.on=true; nav.r=r; nav.step=0; nav.said={}; nav.off=0; nav.lastIdx=null; nav.follow=true;
+  nav.on=true; nav.r=r; nav.step=0; nav.said={}; nav.banSaid={}; nav.off=0; nav.lastIdx=null; nav.follow=true;
   nav.cum = cumulative(r.shape);
   nav.manAt = r.maneuvers.map(function(m){
     var i=Math.min(m.shapeIndex!=null?m.shapeIndex:0, nav.cum.length-1);
@@ -898,6 +943,20 @@ function navUpdate(pos){
     }
   }
 
+  /* --- 原付通行禁止への接近（ナビ中は通常のアラートを隠しているので専用に出す） --- */
+  var ban=nearestBan(c, 150);
+  var bEl=$('#navBan');
+  if (ban){
+    bEl.hidden=false;
+    bEl.textContent = '⚠ ' + ban.p.title + (ban.p.always?'':('（'+(ban.p.time||ban.p.cond||'時間限定')+'）')) +
+                      ' まで約' + (Math.round(ban.d/10)*10) + 'm';
+    if (!nav.banSaid[ban.id] && ban.d<110){
+      nav.banSaid[ban.id]=1;
+      say('この先およそ'+(Math.round(ban.d/10)*10)+'メートルに、'+
+          (ban.p.always?'原付が通行できない区間':'時間帯によって原付が通行できない区間')+'があります。標識を確認してください。');
+    }
+  } else bEl.hidden=true;
+
   /* --- カメラ追従 --- */
   if (nav.follow){
     var z = sp>11 ? 16.5 : sp>5.5 ? 17.0 : 17.5;
@@ -908,6 +967,15 @@ function navUpdate(pos){
   }
 }
 function renderNav(step, remainM, toManM){
+  /* 残りの二段階右折と、次の次の案内を出す */
+  (function(){
+    var r=nav.r; if(!r) return;
+    var left=(r.need||[]).filter(function(n){ return n.mi>=step; }).length;
+    var lb=$('#navLeft');
+    if (lb) lb.textContent = left ? ('この先 二段階右折 '+left+'か所') : '二段階右折はもうありません';
+    var nx=r.maneuvers[step+1], ne=$('#navNext');
+    if (ne) ne.textContent = nx ? ('つぎに　'+(nx.text||'').replace(/。$/,'')) : '';
+  })();
   var r=nav.r; if(!r) return;
   var m=r.maneuvers[step]||{};
   var two=(r.need||[]).filter(function(n){ return n.mi===step; })[0];
@@ -1225,6 +1293,19 @@ window.addEventListener('unhandledrejection', function(ev){
   el.textContent='エラー(非同期): '+((ev.reason&&(ev.reason.message||ev.reason))||'');
   el.hidden=false;
 });
+/* iOS Safari の下部ツールバーに隠れないよう、実際の可視領域から下余白を算出する。
+   これをやらないと「終了ボタンが無い」ように見える。 */
+function syncSafeBottom(){
+  var vv=window.visualViewport;
+  var gap = vv ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0;
+  document.documentElement.style.setProperty('--vvb', gap+'px');
+}
+if (window.visualViewport){
+  ['resize','scroll'].forEach(function(ev){ window.visualViewport.addEventListener(ev, syncSafeBottom); });
+}
+window.addEventListener('orientationchange', function(){ setTimeout(syncSafeBottom,300); });
+syncSafeBottom();
+
 updateCompass(); updatePitchBtn();
 makeDraggable($('#sheet'));
 makeDraggable($('#route'));

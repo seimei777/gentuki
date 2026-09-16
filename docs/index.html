@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;700;900&family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
-<link rel="stylesheet" href="style.css?v=202609170201">
+<link rel="stylesheet" href="style.css?v=202609170206">
 </head>
 <body>
 <div id="map"></div>
@@ -63,11 +63,15 @@
     </div>
   </div>
   <div id="navTwo" class="nb-two" hidden>この交差点は二段階右折 — 左端を直進して向きを変える</div>
+  <div id="navNext" class="nb-next"></div>
 </div>
+
+<div id="navBan" hidden></div>
 
 <button id="navRecenter" hidden>現在地に戻す</button>
 
 <div id="navBar" hidden>
+  <div id="navLeft" class="nb-left"></div>
   <div class="nv"><b id="navEta">--:--</b><span>到着</span></div>
   <div class="nv"><b id="navMin">--</b><span>残り</span></div>
   <div class="nv"><b id="navRemain">--</b><span>距離</span></div>
@@ -187,6 +191,6 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js"></script>
-<script src="app.js?v=202609170201"></script>
+<script src="app.js?v=202609170206"></script>
 </body>
 </html>
