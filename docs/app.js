@@ -298,12 +298,24 @@ function hideToast(){ $('#toast').hidden=true; }
 /* ---------------- 検索 ---------------- */
 var results=$('#results');
 $('#searchForm').addEventListener('submit',function(e){
-  e.preventDefault(); search($('#q').value.trim());
+  e.preventDefault(); $('#q').blur(); search($('#q').value.trim());
 });
-function search(q){
+var searchTimer=null, searchSeq=0;
+$('#q').addEventListener('input',function(){
+  var v=this.value.trim();
+  clearTimeout(searchTimer);
+  if (v.length<2){ results.hidden=true; return; }
+  searchTimer=setTimeout(function(){ search(v,true); }, 280);
+});
+$('#q').addEventListener('focus',function(){
+  if (this.value.trim().length>=2 && results.children.length) results.hidden=false;
+});
+function search(q, incremental){
   if(!q) return;
-  results.hidden=true;
-  var btn=$('#goBtn'); btn.disabled=true; btn.textContent='検索中';
+  var seq=++searchSeq;                        // 古い応答で新しい結果を上書きしない
+  if(!incremental) results.hidden=true;
+  var btn=$('#goBtn');
+  if(!incremental){ btn.disabled=true; btn.textContent='検索中'; }
   var acc=[], seen={}, done=0;
 
   function push(list){
@@ -318,18 +330,19 @@ function search(q){
     });
     acc.sort(function(p,q2){ return (p.near-q2.near) || (p.fit-q2.fit) ||
       (p.name.length - q2.name.length); });
+    if (seq!==searchSeq) return;
     if (acc.length) renderResults(acc.slice(0,8));
   }
   function finish(){
-    if (++done < 2) return;
+    if (++done < 2 || seq!==searchSeq) return;
     btn.disabled=false; btn.textContent='検索';
-    if (!acc.length) toast('見つかりませんでした');
+    if (!acc.length && !incremental) toast('見つかりませんでした');
   }
 
   /* 地理院の住所検索は速いので先に表示する */
   fetch('https://msearch.gsi.go.jp/address-search/AddressSearch?q='+encodeURIComponent(q))
     .then(function(r){ return r.json(); })
-    .then(function(a){ push((a||[]).map(function(f){
+    .then(function(a){ if(seq!==searchSeq) return; push((a||[]).map(function(f){
         return { name:f.properties.title, sub:'地理院 住所検索',
                  x:f.geometry.coordinates[0], y:f.geometry.coordinates[1] }; })); })
     .catch(function(){}).then(finish);
@@ -338,7 +351,7 @@ function search(q){
   fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&countrycodes=jp&viewbox=134.9,34.98,135.5,34.55&bounded=0&q='+encodeURIComponent(q),
       {headers:{'Accept':'application/json'}})
     .then(function(r){ return r.json(); })
-    .then(function(a){ push((a||[]).map(function(o){
+    .then(function(a){ if(seq!==searchSeq) return; push((a||[]).map(function(o){
         var n=o.display_name.split(',');
         return { name:o.name||n[0], sub:n.slice(1,4).join('、').trim(),
                  x:parseFloat(o.lon), y:parseFloat(o.lat) }; })); })
@@ -816,7 +829,7 @@ function startNav(){
   document.body.dataset.nav='1';
   $('#navBand').hidden=false; $('#navBar').hidden=false; $('#navRecenter').hidden=true;
   $('#route').hidden=true; $('#sheet').hidden=true;
-  map.dragRotate.disable(); map.touchZoomRotate.disableRotation();
+  nav.userBearing=false;
   acquireWakeLock();
   if (!voiceOn) $('#voiceBtn').click();      // 案内は音声が主役なので自動でオンにする
   renderNav(0, r.km*1000, 0);
@@ -826,7 +839,7 @@ function stopNav(){
   nav.on=false; nav.r=null; nav.follow=true;
   document.body.dataset.nav='';
   $('#navBand').hidden=true; $('#navBar').hidden=true; $('#navRecenter').hidden=true;
-  map.dragRotate.enable(); map.touchZoomRotate.enableRotation();
+
   releaseWakeLock();
   try{ speechSynthesis.cancel(); }catch(e){}
   map.easeTo({pitch:0, bearing:0, duration:600});
@@ -888,8 +901,8 @@ function navUpdate(pos){
   /* --- カメラ追従 --- */
   if (nav.follow){
     var z = sp>11 ? 16.5 : sp>5.5 ? 17.0 : 17.5;
-    var b = (lastHeading!=null)? lastHeading : map.getBearing();
-    map.easeTo({ center:c, bearing:b, pitch:60, zoom:z,
+    var b = nav.userBearing ? map.getBearing() : headingNow(sp);
+    map.easeTo({ center:c, bearing:b, pitch:(nav.userPitch!=null?nav.userPitch:60), zoom:z,
       padding:{top:0,bottom:Math.round(map.getContainer().clientHeight*0.5),left:0,right:0},
       duration:900, easing:function(t){return t;}, essential:true });
   }
@@ -925,10 +938,82 @@ document.addEventListener('visibilitychange',function(){
 
 $('#navStart').addEventListener('click', startNav);
 $('#navEnd').addEventListener('click', stopNav);
-$('#navRecenter').addEventListener('click', function(){ nav.follow=true; this.hidden=true; });
+$('#navRecenter').addEventListener('click', function(){
+  nav.follow=true; nav.userBearing=false; nav.userPitch=null; this.hidden=true;
+});
 map.on('dragstart', function(e){
   if (nav.on && e && e.originalEvent){ nav.follow=false; $('#navRecenter').hidden=false; }
 });
+/* ナビ中に自分で回したら、その向きを尊重する（再センターで戻る） */
+map.on('rotatestart', function(e){
+  if (nav.on && e && e.originalEvent){ nav.userBearing=true; $('#navRecenter').hidden=false; }
+});
+map.on('pitchstart', function(e){
+  if (nav.on && e && e.originalEvent){ nav.userPitch=map.getPitch(); }
+});
+
+
+/* ==================== 方角と 2D/3D ====================
+   進行方向モードでは、止まっているときは GPS の course が当てにならないので
+   端末のコンパス（磁気センサー）を使う。走り出したら GPS の進行方向に切り替える。 */
+var deviceHeading=null, compassOn=false;
+function headingNow(speed){
+  if (speed!=null && speed>2 && lastHeading!=null) return lastHeading;  // 走行中はGPSが正確
+  if (deviceHeading!=null) return deviceHeading;                        // 停止中はコンパス
+  if (lastHeading!=null) return lastHeading;
+  return map.getBearing();
+}
+function onDeviceOrientation(e){
+  var h = (e.webkitCompassHeading!=null) ? e.webkitCompassHeading
+        : (e.absolute && e.alpha!=null ? (360 - e.alpha) : null);
+  if (h!=null && isFinite(h)) deviceHeading = (h+360)%360;
+}
+function enableCompass(){
+  if (compassOn) return;
+  compassOn=true;
+  var DOE = window.DeviceOrientationEvent;
+  if (DOE && typeof DOE.requestPermission==='function'){
+    /* iOS 13以降は許可が要る。必ずタップの中から呼ぶこと */
+    DOE.requestPermission().then(function(r){
+      if (r==='granted') window.addEventListener('deviceorientation', onDeviceOrientation);
+      else toast('端末の方角センサーが使えないため、GPSの進行方向で向きを合わせます',5000);
+    }).catch(function(){});
+  } else {
+    window.addEventListener('deviceorientationabsolute', onDeviceOrientation);
+    window.addEventListener('deviceorientation', onDeviceOrientation);
+  }
+}
+
+/* 北に戻すコンパス。回転か傾きがあるときだけ出す */
+function updateCompass(){
+  var b=map.getBearing(), p=map.getPitch();
+  var el=$('#compass');
+  if (!el) return;
+  el.hidden = (Math.abs(b)<0.5 && p<1);
+  el.querySelector('.cmp-needle').style.transform='rotate('+(-b)+'deg)';
+}
+map.on('rotate', updateCompass);
+map.on('pitch', updateCompass);
+$('#compass').addEventListener('click',function(){
+  if (nav.on){ nav.userBearing=false; nav.userPitch=null; }
+  if (locMode===2) setLocMode(1);
+  map.easeTo({bearing:0, pitch:0, duration:500});
+});
+
+/* 2D / 3D */
+function updatePitchBtn(){
+  var b=$('#pitchBtn'); if(!b) return;
+  var is3d = map.getPitch() > 20;
+  b.dataset.mode = is3d ? '3d' : '2d';
+  b.querySelector('span').textContent = is3d ? '3D' : '2D';
+}
+$('#pitchBtn').addEventListener('click',function(){
+  var to = map.getPitch() > 20 ? 0 : 55;
+  if (nav.on) nav.userPitch = to;
+  map.easeTo({pitch:to, duration:500});
+  setTimeout(updatePitchBtn, 520);
+});
+map.on('pitchend', updatePitchBtn);
 
 /* ---------------- 現在地・近接アラート ---------------- */
 var watch=null, meMarker=null, me=null, voiceOn=false, alerted={}, lastHeading=null, lastSpeed=null, lowAccTried=false;
@@ -956,7 +1041,7 @@ function applyFollow(c, heading, speed){
     z = speed>11 ? 15.8 : speed>5.5 ? 16.4 : 16.9;
   }
   var opt = { center:c, zoom:z, duration:900, easing:function(t){return t;}, essential:true };
-  if (locMode===2 && heading!=null) opt.bearing = heading;
+  if (locMode===2) opt.bearing = headingNow(speed);
   if (locMode===1) opt.bearing = 0;
   map.easeTo(opt);
 }
@@ -1031,7 +1116,9 @@ function stopLocate(){
 }
 $('#locBtn').addEventListener('click',function(){
   if (watch==null){ startLocate(function(){ setLocMode(1); }); setLocMode(1); return; }
-  setLocMode(locMode===1 ? 2 : 1);
+  var next = locMode===1 ? 2 : 1;
+  if (next===2) enableCompass();
+  setLocMode(next);
 });
 /* 長押しで現在地をオフ */
 (function(){
@@ -1138,6 +1225,7 @@ window.addEventListener('unhandledrejection', function(ev){
   el.textContent='エラー(非同期): '+((ev.reason&&(ev.reason.message||ev.reason))||'');
   el.hidden=false;
 });
+updateCompass(); updatePitchBtn();
 makeDraggable($('#sheet'));
 makeDraggable($('#route'));
 toast('規制データを読み込み中…',0);

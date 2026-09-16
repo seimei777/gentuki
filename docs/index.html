@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;700;900&family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
-<link rel="stylesheet" href="style.css?v=202609170155">
+<link rel="stylesheet" href="style.css?v=202609170201">
 </head>
 <body>
 <div id="map"></div>
@@ -81,7 +81,18 @@
   <button class="a-close" type="button">閉じる</button>
 </div>
 
+<button id="compass" hidden aria-label="北に戻す">
+  <svg class="cmp-needle" viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M12 3 L15.4 13 L12 11 L8.6 13 Z" fill="#ea4335"/>
+    <path d="M12 21 L8.6 13 L12 15 L15.4 13 Z" fill="#9aa0a6"/>
+  </svg>
+</button>
+
 <div id="tools">
+  <button class="tool" id="pitchBtn" data-mode="2d" aria-label="2Dと3Dの切替">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 8.5 12 4l9 4.5-9 4.5z"/><path d="M3 12.5 12 17l9-4.5"/><path d="M3 16.5 12 21l9-4.5"/></svg>
+    <span>2D</span>
+  </button>
   <button class="tool" id="themeBtn" aria-pressed="false" aria-label="昼夜の切替">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20.5 14.5A8.5 8.5 0 019.5 3.5a8.5 8.5 0 1011 11z"/></svg>
     <span>昼夜</span>
@@ -176,6 +187,6 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js"></script>
-<script src="app.js?v=202609170155"></script>
+<script src="app.js?v=202609170201"></script>
 </body>
 </html>
