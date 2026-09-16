@@ -132,22 +132,58 @@ var NIGHT_ROAD={
   highway_path:            '#26272b',
   road_pier:               '#26272b'
 };
+/* 一方通行の矢印。
+   スプライトの矢印は昼 arrow(10x7・輝度128) と夜 oneway(21x21・輝度106) で
+   別物のうえ、どちらも灰色。夜の幹線を明るくすると輝度92で矢印と差が付かず、
+   SDFではないので色も変えられない。そこで矢印を自前で描いて差し替える。
+   右向きに描くので回転もいらない（oneway は上向きの絵で、
+   symbol-placement:line がアイコンの横軸を道に合わせるため直交していた）。
+   昼夜で同じ絵・同じ大きさになり、色だけテーマで変える。 */
+function makeArrow(fill, edge){
+  var s=2, W=22*s, H=10*s;                   // s=2 は Retina 用の解像度
+  var cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+  var g=cv.getContext('2d');
+  function draw(col, grow){
+    g.strokeStyle=col; g.fillStyle=col; g.lineCap='butt';
+    g.lineWidth=3*s+grow*2;
+    g.beginPath(); g.moveTo(2*s, H/2); g.lineTo(W-8*s, H/2); g.stroke();
+    g.beginPath();
+    g.moveTo(W-1.5*s+grow, H/2);
+    g.lineTo(W-9.5*s-grow, 1*s-grow);
+    g.lineTo(W-9.5*s-grow, H-1*s+grow);
+    g.closePath(); g.fill();
+  }
+  if(edge) draw(edge, 1.6*s);                // 縁取り。道の明暗どちらでも輪郭が出る
+  draw(fill, 0);
+  var d=g.getImageData(0,0,W,H);
+  return {width:W, height:H, data:new Uint8Array(d.data.buffer)};
+}
+var ONEWAY_LAYERS=[['road_oneway',0],['road_oneway_opposite',180],
+                   ['road_one_way_arrow',0],['road_one_way_arrow_opposite',180]];
+var ONEWAY_SIZE=['interpolate',['linear'],['zoom'],15,1.0,19,1.9];
+function fixOneway(){
+  var night = (theme==='night');
+  var img = makeArrow(night?'#e2e8ef':'#4a4f56', night?'rgba(0,0,0,.85)':'rgba(255,255,255,.85)');
+  try{
+    if(map.hasImage('gk_arrow')) map.removeImage('gk_arrow');
+    map.addImage('gk_arrow', img, {pixelRatio:2});
+  }catch(e){ return; }
+  ONEWAY_LAYERS.forEach(function(a){
+    if(!map.getLayer(a[0])) return;
+    try{
+      map.setLayoutProperty(a[0],'icon-image','gk_arrow');
+      map.setLayoutProperty(a[0],'icon-rotate',a[1]);
+      map.setLayoutProperty(a[0],'icon-size',ONEWAY_SIZE);
+      map.setPaintProperty(a[0],'icon-opacity',1);
+    }catch(e){}
+  });
+}
+
 function boostNightRoads(){
   if (theme!=='night') return;
   Object.keys(NIGHT_ROAD).forEach(function(id){
     if(!map.getLayer(id)) return;
     try{ map.setPaintProperty(id,'line-color',NIGHT_ROAD[id]); }catch(e){}
-  });
-  /* 夜の一方通行の矢印が道と垂直を向く。スタイル側の不具合。
-     スプライトを実測すると oneway は 9x21 の上向き（上端に矢じり、下に軸）。
-     symbol-placement:line はアイコンの横軸を道に合わせるので、
-     上向きの絵は必ず道と直交する。昼の arrow は 8x5 の右向きなので問題ない。
-     元は icon-opacity 0.5 で真っ黒な道に埋もれ、見えていなかっただけ。
-     回転を90度足して道の向きに合わせる（逆向き用は 180+90=270）。
-     大きさも不透明度も元のまま。 */
-  [['road_oneway',90],['road_oneway_opposite',270]].forEach(function(a){
-    if(!map.getLayer(a[0])) return;
-    try{ map.setLayoutProperty(a[0],'icon-rotate',a[1]); }catch(e){}
   });
 }
 
@@ -204,7 +240,7 @@ function setTheme(t){
   document.body.dataset.theme=t;
   map.setStyle(BASEMAP[t]);
   map.once('styledata', function(){       // MapLibre は style.load を発火しないので styledata を使う
-    forceJapaneseLabels(); boostNightLabels(); boostNightRoads(); addNightPoi();
+    forceJapaneseLabels(); boostNightLabels(); boostNightRoads(); fixOneway(); addNightPoi();
     if (DATA) addLayers();                // ソース・レイヤはスタイル差し替えで消えるので貼り直す
   });
 }
@@ -439,7 +475,7 @@ ready.then(function(a){
     PTS.push(p);
     var k = gkey(p.x,p.y); (grid[k]||(grid[k]=[])).push(p);
   });
-  buildBanIndex(); forceJapaneseLabels(); boostNightLabels(); boostNightRoads(); addNightPoi(); addLayers(); buildChips(); hideToast();
+  buildBanIndex(); forceJapaneseLabels(); boostNightLabels(); boostNightRoads(); fixOneway(); addNightPoi(); addLayers(); buildChips(); hideToast();
 }).catch(function(e){ console.error(e); toast('データを読み込めませんでした'); });
 
 var banGrid={};
