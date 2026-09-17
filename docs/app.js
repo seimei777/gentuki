@@ -50,10 +50,18 @@ var GLYPH = {
   ow:'<svg class="gl" viewBox="0 0 24 24"><rect x="2.5" y="8" width="19" height="8" rx="1.5" fill="none" stroke="'+C.blue+'" stroke-width="2"/><path d="M7 12h9" stroke="'+C.blue+'" stroke-width="2" stroke-linecap="round"/><path d="M16 12l-3-2.6M16 12l-3 2.6" stroke="'+C.blue+'" stroke-width="2" stroke-linecap="round"/></svg>',
   exp:'<svg class="gl" viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="2.5" fill="none" stroke="'+C.express+'" stroke-width="2"/><path d="M5.5 12h4M11 12h2.5M15.5 12h3" stroke="'+C.express+'" stroke-width="2" stroke-linecap="round"/></svg>'
 };
+/* 「二段階右折」と「小回り」は逆の意味なので、同じ束にしない。
+   605件のうち 141件は近くに小回り標識があり、二段階右折をしてはいけない側。
+   円をグレーにするだけでは足りず、数もチップも分ける。
+   count はデータから数え直すもの（省略時は layer の件数）。 */
 var LAYERS = [
-  {key:'two_stage_likely', glyph:'est', label:'二段階右折', ids:['ts_line','ts_pt']},
+  {key:'two_stage_likely', glyph:'est', label:'二段階右折', ids:['ts_line','ts_pt'],
+   count:function(f){ return f.properties.layer==='two_stage_likely' && f.properties.koma==null; }},
   {key:'two_stage_required_sign', glyph:'req', label:'二段階右折 標識', ids:['ts_sign']},
-  {key:'two_stage_forbidden', glyph:'no', label:'小回り（禁止）', ids:['ts_no']},
+  {key:'two_stage_forbidden', glyph:'no', label:'小回り＝二段階しない',
+   ids:['ts_no','ts_koma','ts_line_koma'],
+   count:function(f){ var l=f.properties.layer;
+     return l==='two_stage_forbidden' || (l==='two_stage_likely' && f.properties.koma!=null); }},
   {key:'moped_banned', glyph:'ban', label:'原付通行禁止', ids:['ban_line','ban_pt']},
   /* 歩行者用道路は原付が入れない場所そのもの（商店街・通学路が多い）。
      地図には描いていたのにこの一覧に無く、絞り込みにも件数にも出ていなかった。 */
@@ -475,12 +483,25 @@ function expand(doc){
     if(q.n!=null) p.lanes=q.n;
     if (q.k!=null) p.koma = q.k;
     if(lay==='two_stage_likely'||lay==='two_stage_likely_line'){
-      p.title='二段階右折　片側'+(q.n||3)+'車線';
       p.strong = (q.o!=null && q.o>=3);            // OSMの車線数でも裏が取れたもの
-      p.detail = '車両通行帯が3以上、かつ信号機あり。道交法ではこの条件だけで、'
-        + '標識が無くても原付一種は二段階右折が義務です。'
-        + (q.k!=null ? 'ただし近くに小回り標識があります。標識がある場合はそちらが優先で、二段階右折をしてはいけません。' : '');
+      if (q.k!=null){
+        /* 条件だけ見れば二段階だが、小回り標識がある。結論は逆なので、
+           見出しから「禁止」と言い切る。理由は本文で説明する。 */
+        p.title='二段階右折 禁止（小回り標識あり）';
+        p.detail='車両通行帯が3以上で信号機もあるので、本来なら二段階右折の条件を満たします。'
+          + 'ただし近くに「小回り」標識があり、標識のほうが優先です。'
+          + '二段階右折をしてはいけません。右折レーンから普通に曲がります。';
+      } else {
+        p.title='二段階右折　片側'+(q.n||3)+'車線';
+        p.detail='車両通行帯が3以上、かつ信号機あり。道交法ではこの条件だけで、'
+          + '標識が無くても原付一種は二段階右折が義務です。';
+      }
       p.src=SRC_EST; p.confidence='estimated';
+      /* 現地確認の報告はこの識別子で集める。歩行者用道路・通行止めには
+         付けていたのに二段階右折には付けておらず、renderFeedback が
+         !p.uk で必ず抜けていた（＝報告欄が一度も出ていなかった）。
+         交差点そのものを指したいので、点のときだけ付ける。 */
+      if (f.geometry.type==='Point') p.uk = 'ts@'+f.geometry.coordinates.join(',');
     } else if(lay==='two_stage_required_sign'){
       p.title='二段階右折 標識';
       p.detail='「原動機付自転車の右折方法（二段階）」の標識。車線数に関係なく二段階右折が必要です。この標識自体は稀で、通常は標識が無くても車線数と信号で義務が決まります。';
@@ -708,11 +729,22 @@ function addLayers(){
            'line-width':['interpolate',['linear'],['zoom'],10,4,14,7,17,12,19,17]}});
 
   /* --- 二段階右折など --- */
-  add({id:'ts_line',type:'line',source:'g',filter:['==',['get','layer'],'two_stage_likely_line'],
-    minzoom:12,
+  /* 進入路の線も、円と同じ色分けにする。
+     グレーの交差点（小回り標識あり）へ伸びる線をオレンジで描くと、
+     「ここは二段階」と読めてしまう。 */
+  var TS_LW=['interpolate',['linear'],['zoom'],11,2,17,9];
+  add({id:'ts_line',type:'line',source:'g',minzoom:12,
+    filter:['all',['==',['get','layer'],'two_stage_likely_line'],['!',['has','koma']]],
     layout:{'line-cap':'round'},
-    paint:{'line-color':C.amber,'line-width':['interpolate',['linear'],['zoom'],11,2,17,9],
-           'line-opacity':.35}});
+    paint:{'line-color':C.amber,'line-width':TS_LW,'line-opacity':.35}});
+  /* グレーを 0.35 のままにすると夜の道路と同化して見えない。濃くし、
+     さらに破線にして「条件は満たすが打ち消されている」と読めるようにする。
+     dasharray は値を固定で書く分には使える（フィーチャごとに変えるのが不可）。 */
+  add({id:'ts_line_koma',type:'line',source:'g',minzoom:12,
+    filter:['all',['==',['get','layer'],'two_stage_likely_line'],['has','koma']],
+    layout:{'line-cap':'butt'},
+    paint:{'line-color':C.grey,'line-width':TS_LW,'line-opacity':.7,
+           'line-dasharray':[2,1.4]}});
 
   add({id:'ts_no',type:'circle',source:'g',filter:['==',['get','layer'],'two_stage_forbidden'],
     minzoom:12.5,
@@ -720,12 +752,17 @@ function addLayers(){
            'circle-color':C.blue,
            'circle-opacity':['interpolate',['linear'],['zoom'],11,.55,14,.9],
            'circle-stroke-width':1.2,'circle-stroke-color':'#fff','circle-stroke-opacity':.7}});
-  add({id:'ts_pt',type:'circle',source:'g',filter:['==',['get','layer'],'two_stage_likely'],
-    minzoom:11.5,
-    paint:{'circle-radius':['interpolate',['linear'],['zoom'],11.5,3.5,14,6.5,17,12],
-           'circle-color':'#fff',
-           'circle-stroke-width':['interpolate',['linear'],['zoom'],11.5,2,17,3.5],
-           'circle-stroke-color':['case',['has','koma'],C.grey,C.amber]}});
+  var TS_R=['interpolate',['linear'],['zoom'],11.5,3.5,14,6.5,17,12];
+  var TS_SW=['interpolate',['linear'],['zoom'],11.5,2,17,3.5];
+  add({id:'ts_pt',type:'circle',source:'g',minzoom:11.5,
+    filter:['all',['==',['get','layer'],'two_stage_likely'],['!',['has','koma']]],
+    paint:{'circle-radius':TS_R,'circle-color':'#fff',
+           'circle-stroke-width':TS_SW,'circle-stroke-color':C.amber}});
+  /* 小回り標識があって二段階してはいけない側。チップは「小回り」側に付いている。 */
+  add({id:'ts_koma',type:'circle',source:'g',minzoom:11.5,
+    filter:['all',['==',['get','layer'],'two_stage_likely'],['has','koma']],
+    paint:{'circle-radius':TS_R,'circle-color':'#fff',
+           'circle-stroke-width':TS_SW,'circle-stroke-color':C.grey}});
   add({id:'ts_sign',type:'circle',source:'g',filter:['==',['get','layer'],'two_stage_required_sign'],
     minzoom:10,
     paint:{'circle-radius':['interpolate',['linear'],['zoom'],11,6,17,14],'circle-color':C.amber,
@@ -812,7 +849,7 @@ function bindClicks(){
     var ids=['route_label','route_alt'].filter(function(i){ return map.getLayer(i); });
     return ids.length && map.queryRenderedFeatures(e.point,{layers:ids}).length>0;
   }
-  ['expw','ban_line','ban_pt','ped_line','ped_line_t','ped_pt','ts_line','ts_no','ts_pt','ts_sign','ow_line','nd_pt','route_turn'].forEach(function(id){
+  ['expw','ban_line','ban_pt','ped_line','ped_line_t','ped_pt','ts_line','ts_line_koma','ts_no','ts_pt','ts_koma','ts_sign','ow_line','nd_pt','route_turn'].forEach(function(id){
     map.on('click',id,function(e){
       if(onRouteUI(e)) return;
       openSheet(e.features[0].properties, e.lngLat);
@@ -825,6 +862,10 @@ function bindClicks(){
 function buildChips(){
   var counts={};
   DATA.features.forEach(function(f){ var l=f.properties.layer; counts[l]=(counts[l]||0)+1; });
+  LAYERS.forEach(function(L){
+    if(!L.count) return;
+    counts[L.key]=DATA.features.filter(L.count).length;
+  });
   var wrap=$('#chips');
   LAYERS.forEach(function(L){
     on[L.key]= !L.off;                       // 一方通行だけ既定で消しておく
@@ -1555,9 +1596,12 @@ var sheetPt=null;
 function openSheet(p, lngLat){
   if(p.layer==='two_stage_likely_line') p.layer='two_stage_likely';
   sheetPt = lngLat ? [lngLat.lng, lngLat.lat] : null;
-  var t=TAG[p.layer]||['',C.grey];
+  /* 小回り標識がある二段階候補は、意味が「禁止」側なので、
+     オレンジの「義務」ではなく青の「標識」として出す。 */
+  var isKoma = (p.layer==='two_stage_likely' && p.koma!=null && p.koma!=='');
+  var t = isKoma ? ['標識',C.blue] : (TAG[p.layer]||['',C.grey]);
   var tag=$('#sTag'); tag.textContent=t[0]; tag.style.color=t[1];
-  $('#sGlyph').innerHTML=GLYPH[GKEY[p.layer]]||'';
+  $('#sGlyph').innerHTML=GLYPH[isKoma?'no':GKEY[p.layer]]||'';
   $('#sTitle').textContent=p.title||'';
   $('#sDetail').textContent=p.detail||'';
   var rows=[];
@@ -1574,7 +1618,7 @@ function openSheet(p, lngLat){
   if(p.cond) rows.push(['条件',p.cond]);
   if(p.excl) rows.push(['除外される車両',p.excl+
     (/原付|二輪全般|車両全般/.test(p.excl)?'':'　※原付は含まれません（軽車両・自転車に原付は入らない）')]);
-  if(p.koma!=null&&p.koma!=='') rows.push(['注記','約'+p.koma+'m先に小回り標識あり。現地の標識が優先']);
+  if(p.koma!=null&&p.koma!=='') rows.push(['小回り標識','約'+p.koma+'m先にあり。現地の標識が優先']);
   if(p.src) rows.push(['出典',p.src]);
   $('#sMeta').innerHTML=rows.map(function(r){
     return '<dt>'+escapeHtml(r[0])+'</dt><dd>'+escapeHtml(r[1])+'</dd>'; }).join('');
@@ -1643,7 +1687,7 @@ function openPoiSheet(f, lngLat){
 function existingLayers(ids){ return ids.filter(function(i){ return map.getLayer(i); }); }
 map.on('click', function(e){
   if (nav.on) return;
-  var ours=existingLayers(['expw','ban_line','ban_pt','ped_line','ped_line_t','ped_pt','ts_line','ts_no','ts_pt','ts_sign','ow_line','nd_pt','route_turn']);
+  var ours=existingLayers(['expw','ban_line','ban_pt','ped_line','ped_line_t','ped_pt','ts_line','ts_line_koma','ts_no','ts_pt','ts_koma','ts_sign','ow_line','nd_pt','route_turn']);
   if (ours.length && map.queryRenderedFeatures(e.point,{layers:ours}).length) return; // 規制の方を優先
 
   var pad=12, box=[[e.point.x-pad,e.point.y-pad],[e.point.x+pad,e.point.y+pad]];
@@ -1785,11 +1829,20 @@ function renderFeedback(p){
   box.hidden=false;
   var cur=reportsAll()[p.uk];
   box.dataset.uk=p.uk;
-  box.dataset.meta=JSON.stringify({lanes:p.lanes, road:p.road, city:p.city});
+  box.dataset.meta=JSON.stringify({lanes:p.lanes, road:p.road, city:p.city, koma:p.koma});
+  /* グレーの地点（小回り標識あり）は「二段階右折してはいけない」側なので、
+     「二段階右折だった？」と聞くと答えが逆になる。聞くことを入れ替える。
+     記録の意味（ok＝地図が合っていた）は同じなので、保存側は変えない。 */
+  var isKoma = (p.koma!=null && p.koma!=='');
+  box.dataset.koma = isKoma ? '1' : '';
+  $('#fbYes').textContent = isKoma ? '小回り標識があった' : '二段階右折だった';
+  $('#fbNo').textContent  = isKoma ? '無かった（二段階だった）' : '違った';
   $('#fbYes').setAttribute('aria-pressed', String(cur && cur.v==='ok'));
   $('#fbNo').setAttribute('aria-pressed', String(cur && cur.v==='ng'));
   var base = cur
-    ? (cur.v==='ok' ? '「実際に二段階右折だった」と記録済み' : '「違った」と記録済み')
+    ? (cur.v==='ok'
+        ? (isKoma ? '「小回り標識があった」と記録済み' : '「実際に二段階右折だった」と記録済み')
+        : '「違った」と記録済み')
     : '現地を見た人だけが分かる部分です。走ったあとで教えてください。';
   $('#fbNote').textContent = base;
   sbCounts(p.uk, function(c){
@@ -1805,7 +1858,7 @@ function bindFb(id, v){
     var meta={}; try{ meta=JSON.parse(box.dataset.meta||'{}'); }catch(e){}
     reportSet(box.dataset.uk, v, meta);
     renderFeedback({layer:'two_stage_likely', uk:box.dataset.uk, lanes:meta.lanes,
-                    road:meta.road, city:meta.city});
+                    road:meta.road, city:meta.city, koma:meta.koma});
     toast(v==='ok'?'ありがとうございます。記録しました':'記録しました。次の更新で見直します',3000);
   });
 }
@@ -1830,7 +1883,11 @@ function checkPassed(alongM){
         var pp=n.pt.p;
         $('#passUk').value=pp.uk||'';
         /* 走った人の報告が一番価値が高いので、地点の情報を落とさず一緒に送る */
-        $('#passCard').dataset.meta=JSON.stringify({lanes:pp.lanes, road:pp.road, city:pp.city});
+        $('#passCard').dataset.meta=JSON.stringify({lanes:pp.lanes, road:pp.road, city:pp.city, koma:pp.koma});
+        /* 小回り標識がある交差点は二段階しない側。聞き方を逆にする。 */
+        var pk = (pp.koma!=null && pp.koma!=='');
+        $('#passCard').querySelector('.pc-q').textContent = pk ? '小回りだった？（二段階しない）' : '二段階右折だった？';
+        $('#passYes').textContent = pk ? 'そう' : 'はい';
         $('#passWhere').textContent = pp.road || '';
         $('#passCard').hidden=false;
         clearTimeout(passTimer);
