@@ -717,7 +717,10 @@ function addLayers(){
       map.addImage('gk_pill_alt', makePill('#ffffff','rgba(60,64,67,.28)'),
         {pixelRatio:2, stretchX:[[18,78]], stretchY:[[18,42]], content:[10,8,86,52]});
   }catch(e){}
-  add({id:'route_label',type:'symbol',source:'route',filter:['==',['get','k'],'rlabel'],
+  /* 時間ラベルは地図のラベルより前に出す。add() は beforeId にラベル層を
+     指定するので、そのままだと道路名・川の名前・路線番号の下に潜る。 */
+  function addTop(def){ if(!map.getLayer(def.id)) map.addLayer(def); }
+  addTop({id:'route_label',type:'symbol',source:'route',filter:['==',['get','k'],'rlabel'],
     layout:{'text-field':['get','t'],'text-font':['Noto Sans Bold'],
             'text-size':['case',['==',['get','sel'],1],14,12.5],
             'text-line-height':1.2,'text-allow-overlap':true,'text-padding':2,
@@ -1167,7 +1170,7 @@ function requestRoute(){
        そのまま並べても選ぶ理由が無いので、最速から12%以内だけ残す。 */
     var fast=all[0].min;
     routes=all.filter(function(r,i){ return i===0 || r.min <= fast*1.12; });
-    routeIdx=0; routeData=routes[0];
+    routeIdx=0; routeData=routes[0]; labelAt=[];
     drawRoutes(); renderRoute(routeData,false); hideToast();
     addAvoidCandidate();                                  // 二段階右折を避ける版を候補に足す
     if(routeData.banPts.length) avoidBannedIfNeeded();     // 原付が通れない区間を避け直す
@@ -1195,9 +1198,13 @@ function drawRoutes(){
         lanes:n.pt.p.lanes, koma:n.koma, city:n.pt.p.city, src:n.pt.p.src},
       geometry:{type:'Point',coordinates:[n.pt.x,n.pt.y]}});
   });
-  /* 所要時間の吹き出し。線の真ん中あたりに置く */
+  /* 所要時間の吹き出し。位置は候補ごとに固定する（選ぶたびに動かさない）。
+     選択で場所が入れ替わると、数字だけが入れ替わったように見える。
+     置き場所は「他の候補から最も離れている点」。候補が分かれている所に
+     出るので、どの線の話かが分かる。 */
+  if(!labelAt.length) computeLabelPoints();
   routes.forEach(function(r,i){
-    var c=r.shape[Math.floor(r.shape.length*(i===routeIdx?0.45:0.62))];
+    var c=labelAt[i] || r.shape[Math.floor(r.shape.length*0.5)];
     feats.push({type:'Feature',
       properties:{k:'rlabel',i:i,sel:(i===routeIdx?1:0),
                   t:durText(r.min)+(r.avoid?'\n二段階なし':'')},
@@ -1210,6 +1217,28 @@ function drawRoutes(){
   map.fitBounds(b,{padding:{top:150,bottom:window.innerWidth<760?330:80,left:40,right:40},
     duration:700, essential:true});
 }
+var labelAt=[];
+function computeLabelPoints(){
+  labelAt=[];
+  routes.forEach(function(r,i){
+    var best=null, bestD=-1;
+    var step=Math.max(1, Math.floor(r.shape.length/60));   // 60点ほど見れば十分
+    for(var k=step; k<r.shape.length-step; k+=step){
+      var c=r.shape[k], near=1e9;
+      routes.forEach(function(o,j){
+        if(j===i) return;
+        var st=Math.max(1, Math.floor(o.shape.length/60));
+        for(var m2=0;m2<o.shape.length;m2+=st){
+          var d=meters(c,o.shape[m2]);
+          if(d<near) near=d;
+        }
+      });
+      if(near>bestD){ bestD=near; best=c; }
+    }
+    labelAt.push(best || r.shape[Math.floor(r.shape.length*0.5)]);
+  });
+}
+
 function selectRoute(i){
   if(i===routeIdx || !routes[i]) return;
   routeIdx=i; routeData=routes[i];
@@ -1274,7 +1303,7 @@ function addAvoidCandidate(){
     a.avoid=true;
     routes.push(a);
     routes.sort(function(x,y){ return x.min-y.min || x.km-y.km; });
-    routeIdx=routes.indexOf(routeData);
+    routeIdx=routes.indexOf(routeData); labelAt=[];
     drawRoutes(); renderRoute(routeData,false);
   }).catch(function(){});
 }
@@ -1309,7 +1338,9 @@ function fitRouteSheet(){
   var top=el.getBoundingClientRect().top;
   var h=btn.getBoundingClientRect().bottom - top + 18 + (parseInt(getComputedStyle(document.documentElement).getPropertyValue('--vvb'))||0);
   var max=window.innerHeight*0.88;
-  el.style.height=Math.round(Math.min(h, max))+'px';
+  var hh=Math.round(Math.min(h, max));
+  el.dataset.peek=hh;                 // 引っ張り上げた後もここへ戻れるように覚える
+  el.style.height=hh+'px';
 }
 
 function renderRoute(r, isAlt){
@@ -1404,7 +1435,14 @@ function makeDraggable(el){
   var grip = el.querySelector('.grip'); if (!grip) return;
   var startY=0, startH=0, lastY=0, lastT=0, v=0, dragging=false;
   function vh(f){ return window.innerHeight*f; }
-  function peekH(){ return Math.min(vh(0.46), el.scrollHeight + 8); }
+  /* 引っ張り上げた後に戻る高さ。経路パネルは「案内を開始」までの高さに戻す
+     （46vh に戻すと、開始ボタンが切れたり余ったりして戻した気がしない）。
+     fitRouteSheet が測った値を使う。 */
+  function peekH(){
+    var want=parseFloat(el.dataset.peek||'');
+    if(want>0) return Math.min(want, vh(0.88));
+    return Math.min(vh(0.46), el.scrollHeight + 8);
+  }
   function fullH(){ return Math.min(vh(0.88), Math.max(el.scrollHeight + 8, vh(0.5))); }
   function snapTo(h){
     el.style.transition='height .28s cubic-bezier(.32,.72,0,1)';
