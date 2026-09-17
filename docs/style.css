@@ -375,3 +375,12 @@ body[data-theme="day"] #passCard{background:rgba(255,255,255,.96)}
 /* 検索履歴の目印 */
 .hist-mark{display:inline-block;width:16px;color:var(--muted2);font-weight:400;
   margin-right:2px}
+
+/* 片手ズームの掴み代。ここを上下になぞると拡大縮小する。
+   何も出ていないと気づかれないので、細い目印だけ置く。 */
+#zoomHint{position:fixed;z-index:4;right:5px;top:50%;transform:translateY(-50%);
+  width:4px;height:76px;border-radius:2px;pointer-events:none;
+  background:rgba(60,64,67,.22);transition:background .15s ease,width .15s ease}
+body[data-theme="night"] #zoomHint{background:rgba(255,255,255,.22)}
+body.ofz #zoomHint{background:var(--blue,#1a73e8);width:6px}
+body.ofz{touch-action:none}

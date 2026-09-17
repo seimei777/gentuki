@@ -530,11 +530,18 @@ function expand(doc){
 }
 
 var styleReady = new Promise(function(res){ map.once('load', res); });
+/* 対応していない地域を覆うマスク（外枠が日本全体・穴が対応8市）。
+   本体データより軽いが、無くても地図は成立するので失敗しても止めない。 */
+var MASK=null;
+var maskReady = fetch('data/mask.min.geojson?v='+APP_VER)
+  .then(function(r){ return r.json(); })
+  .then(function(j){ MASK=j; })
+  .catch(function(){ MASK=null; });
 var ready = Promise.all([
   /* 版を固定にしていたため、データを作り直してもブラウザが古いものを
      使い続けていた。app.js と同じ版を付けて、一緒に切り替わるようにする。 */
   fetch('data/genki.min.geojson?v='+APP_VER).then(function(r){ return r.json(); }).then(expand),
-  styleReady
+  styleReady, maskReady
 ]);
 ready.then(function(a){
   DATA = a[0];
@@ -636,6 +643,21 @@ function addLayers(){
     data:{type:'FeatureCollection',features:[]}});
 
   function add(def){ if (!map.getLayer(def.id)) map.addLayer(def, before); }
+
+  /* --- 対応範囲外のグレー --- */
+  /* 8市の外は規制を調べていない。何も出ないと「規制が無い」と読めてしまうので、
+     薄く伏せて「ここは見ていない」と分かるようにする。道路の上・地名の下に敷き、
+     地名は読めるままにして現在地の把握を邪魔しない。 */
+  if (MASK){
+    if (!map.getSource('mask')) map.addSource('mask',{type:'geojson',data:MASK});
+    add({id:'area_mask',type:'fill',source:'mask',
+      paint:{'fill-color': theme==='night' ? '#0f1114' : '#e6e8eb',
+             'fill-opacity':['interpolate',['linear'],['zoom'],9,.42,11,.62,14,.72]}});
+    add({id:'area_edge',type:'line',source:'mask',
+      paint:{'line-color': theme==='night' ? '#8a8f94' : '#9aa0a6',
+             'line-width':['interpolate',['linear'],['zoom'],9,1.2,12,1.8,16,2.4],
+             'line-opacity':.85}});
+  }
 
   /* --- 規制レイヤ --- */
   add({id:'expw',type:'line',source:'g',filter:['==',['get','layer'],'expressway'],
@@ -2515,3 +2537,53 @@ toast('規制データを読み込み中…',0);
 
 /* 前回オフラインで送れなかった報告を、起動時に送る */
 sbFlush();
+
+/* ==================== 片手でのズーム ====================
+   スマホは片手で持っていることが多く、そのままでは二本指のピンチができない。
+   画面の右端を上下になぞると拡大縮小するようにする（Googleマップと同じ操作）。
+   右端のボタン（地図切替・方位磁針など）は #map の外側にある別の要素なので、
+   ボタンを押したときはこちらに入ってこない。 */
+(function(){
+  var STRIP = 32;                 // 右端から何pxを掴み代にするか
+  var mapEl = $('#map');
+  var g = null;                   // なぞっている最中の状態
+
+  function onEdge(t){ return (window.innerWidth - t.clientX) <= STRIP; }
+
+  function end(){
+    if (!g) return;
+    g = null;
+    map.dragPan.enable();
+    document.body.classList.remove('ofz');
+    /* ナビ中は自分で決めた倍率として覚える（setZoom は originalEvent を持たず、
+       既存の zoomend では拾えないのでここで入れる） */
+    if (nav.on) nav.userZoom = map.getZoom();
+  }
+
+  mapEl.addEventListener('touchstart', function(e){
+    if (e.touches.length !== 1){ end(); return; }   // 二本指はピンチに任せる
+    var t = e.touches[0];
+    if (!onEdge(t)) return;
+    g = { y:t.clientY, z:map.getZoom() };
+    map.dragPan.disable();
+    document.body.classList.add('ofz');
+    e.preventDefault(); e.stopPropagation();
+  }, {capture:true, passive:false});
+
+  mapEl.addEventListener('touchmove', function(e){
+    if (!g) return;
+    if (e.touches.length !== 1){ end(); return; }
+    /* 画面の高さの 1/6 で 1段階。上へ引くと拡大、下へで縮小。
+       始点からの絶対量で決めるので、往復してもズレない。 */
+    var dz = (g.y - e.touches[0].clientY) / (window.innerHeight/6);
+    var z  = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), g.z + dz));
+    map.setZoom(z);
+    e.preventDefault(); e.stopPropagation();
+  }, {capture:true, passive:false});
+
+  mapEl.addEventListener('touchend', function(e){
+    if (g){ e.preventDefault(); e.stopPropagation(); }
+    end();
+  }, {capture:true, passive:false});
+  mapEl.addEventListener('touchcancel', end, {capture:true, passive:false});
+})();
