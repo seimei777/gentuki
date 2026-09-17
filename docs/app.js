@@ -692,7 +692,7 @@ function addLayers(){
   add({id:'route_label',type:'symbol',source:'route',filter:['==',['get','k'],'rlabel'],
     layout:{'text-field':['get','t'],'text-font':['Noto Sans Regular'],
             'text-size':['case',['==',['get','sel'],1],14,12.5],
-            'text-allow-overlap':true,'text-padding':2},
+            'text-line-height':1.15,'text-allow-overlap':true,'text-padding':2},
     paint:{'text-color':['case',['==',['get','sel'],1],'#ffffff','#3c4043'],
            'text-halo-color':['case',['==',['get','sel'],1],C.route,'#ffffff'],
            'text-halo-width':['case',['==',['get','sel'],1],3.2,2.6]}});
@@ -899,7 +899,7 @@ function escapeHtml(s){ return String(s).replace(/[<>&"]/g,function(c){
   return {'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]; }); }
 
 /* ---------------- 目的地・ルート ---------------- */
-var destMarker=null, dest=null, destName='', routeData=null, altData=null, showingAlt=false;
+var destMarker=null, dest=null, destName='', routeData=null;
 
 function setDestination(lngLat, name){
   dest=lngLat; destName=name||'選択した地点';
@@ -1120,14 +1120,18 @@ var routes=[], routeIdx=0;
 function requestRoute(){
   if(!me || !dest){ return; }
   toast('ルートを計算中…',0);
-  showingAlt=false; altData=null; $('#avoidChk').checked=false; $('#avoidNote').textContent='';
   valhalla(me, dest, null, null, 2).then(function(list){
     if(!Array.isArray(list)) list=[list];
-    routes=list.map(analyse).sort(function(a,b){ return a.min-b.min || a.km-b.km; });
+    var all=list.map(analyse).sort(function(a,b){ return a.min-b.min || a.km-b.km; });
+    /* Valhalla の代替は「主ルートと十分違う経路」という条件で作られるため、
+       違うようにするには遠回りするしかなく、実測で +15〜37% 遅い。
+       そのまま並べても選ぶ理由が無いので、最速から12%以内だけ残す。 */
+    var fast=all[0].min;
+    routes=all.filter(function(r,i){ return i===0 || r.min <= fast*1.12; });
     routeIdx=0; routeData=routes[0];
     drawRoutes(); renderRoute(routeData,false); hideToast();
-    if(routeData.need.length) prepareAlternative();
-    if(routeData.banPts.length) avoidBannedIfNeeded();   // 原付が通れない区間を避け直す
+    addAvoidCandidate();                                  // 二段階右折を避ける版を候補に足す
+    if(routeData.banPts.length) avoidBannedIfNeeded();     // 原付が通れない区間を避け直す
   }).catch(function(e){
     console.error(e); toast('ルートを計算できませんでした。少し時間をおいて試してください',5000);
   });
@@ -1156,7 +1160,8 @@ function drawRoutes(){
   routes.forEach(function(r,i){
     var c=r.shape[Math.floor(r.shape.length*(i===routeIdx?0.45:0.62))];
     feats.push({type:'Feature',
-      properties:{k:'rlabel',i:i,sel:(i===routeIdx?1:0),t:durText(r.min)},
+      properties:{k:'rlabel',i:i,sel:(i===routeIdx?1:0),
+                  t:durText(r.min)+(r.avoid?'\n二段階なし':'')},
       geometry:{type:'Point',coordinates:c}});
   });
   lastRouteGeo={type:'FeatureCollection',features:feats};
@@ -1169,9 +1174,7 @@ function drawRoutes(){
 function selectRoute(i){
   if(i===routeIdx || !routes[i]) return;
   routeIdx=i; routeData=routes[i];
-  showingAlt=false; altData=null; $('#avoidChk').checked=false; $('#avoidNote').textContent='';
   drawRoutes(); renderRoute(routeData,false);
-  if(routeData.need.length) prepareAlternative();
 }
 /* Valhalla の motor_scooter は自動車専用道路は避けるが、
    公安委員会の二輪通行禁止（県警データ側）は知らない。
@@ -1206,9 +1209,8 @@ function avoidBannedIfNeeded(){
     hideToast();
     if (stillBanned < wasBanned && a2.km < before*1.35){   // 35%以上遠回りになるなら
                                                           // 迂回せず警告に留める
-      routeData=a2; routes[routeIdx]=a2; showingAlt=false; altData=null;
+      routeData=a2; routes[routeIdx]=a2;
       drawRoutes(); renderRoute(routeData,false);
-      if (routeData.need.length) prepareAlternative();
       toast('原付が通れない区間を避けたルートに差し替えました（+'+
             (Math.round((a2.km-before)*10)/10)+'km）', 6000);
     } else if (stillBanned < wasBanned){
@@ -1217,22 +1219,26 @@ function avoidBannedIfNeeded(){
   }).catch(function(){ hideToast(); });
 }
 
-function prepareAlternative(){
-  var ex=routeData.need.map(function(n){ return [n.pt.x, n.pt.y]; });
-  var note=$('#avoidNote'); note.textContent='計算中…';
+/* 二段階右折を避ける版を「候補の1本」として足す。
+   チェックボックスだと、入れた瞬間に所要時間が変わるうえ、
+   元から二段階右折を通らない候補が別にある場合と話が噛み合わない。
+   候補として並べれば、時間と引き換えに何が得られるかがその場で見える。 */
+function addAvoidCandidate(){
+  var base=routes[0];
+  if(!base || !base.need.length) return;                 // 避けるものが無い
+  var ex=base.need.map(function(n){ return [n.pt.x, n.pt.y]; });
   valhalla(me, dest, ex).then(function(r){
-    altData=analyse(r);
-    var extra=Math.round((altData.km-routeData.km)*10)/10;
-    if(altData.need.length>=routeData.need.length){
-      note.textContent='迂回路なし'; altData=null; return;
-    }
-    note.textContent = (extra>0?('+'+extra+'km'):'短縮') + '／二段階 '+altData.need.length+'か所';
-  }).catch(function(){ note.textContent='—'; altData=null; });
+    var a=analyse(r);
+    if(a.need.length>=base.need.length) return;          // 減らないなら出さない
+    if(routes.some(function(x){ return x.need.length===0 && x.min<=a.min; })) return;
+                                                          // 既に同等以上の候補がある
+    a.avoid=true;
+    routes.push(a);
+    routes.sort(function(x,y){ return x.min-y.min || x.km-y.km; });
+    routeIdx=routes.indexOf(routeData);
+    drawRoutes(); renderRoute(routeData,false);
+  }).catch(function(){});
 }
-$('#avoidChk').addEventListener('change',function(){
-  if(this.checked && altData){ showingAlt=true; drawRoute(altData); renderRoute(altData,true); }
-  else { this.checked=false; showingAlt=false; if(routeData){ drawRoutes(); renderRoute(routeData,false); } }
-});
 
 /* 1本だけ描く。ナビ中と「二段階右折を避ける」表示で使う（候補は出さない）。 */
 function drawRoute(r){
@@ -1315,7 +1321,7 @@ function renderRoute(r, isAlt){
   $('#sheet').hidden=true;
 }
 $('#rClose').addEventListener('click',function(){
-  $('#route').hidden=true; routeData=null; altData=null;
+  $('#route').hidden=true; routeData=null; routes=[]; routeIdx=0;
   if(destMarker){ destMarker.remove(); destMarker=null; } dest=null;
   lastRouteGeo=null;
   map.getSource('route').setData({type:'FeatureCollection',features:[]});
@@ -1800,7 +1806,7 @@ function project(r, pt){
 }
 
 function startNav(){
-  var r = showingAlt? altData : routeData;
+  var r = routeData;
   if (!r) return;
   if (!me){ toast('先に現在地をオンにしてください',4000); startLocate(function(){ startNav(); }); return; }
   nav.on=true; nav.r=r; nav.said={}; nav.banSaid={}; nav.off=0; nav.lastIdx=null; nav.follow=true;
@@ -2326,7 +2332,7 @@ function checkNear(){
   }
 }
 function routeNeedSet(){
-  var r = showingAlt? altData : routeData;
+  var r = routeData;
   if(!r || !r.need.length) return null;
   var s={}; r.need.forEach(function(n){ s[n.pt.i]=1; }); return s;
 }
