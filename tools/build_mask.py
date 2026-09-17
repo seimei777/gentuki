@@ -1,13 +1,18 @@
 # -*- coding: utf-8 -*-
 """対応8市の外側を薄くグレーで覆うためのマスク（穴あきポリゴン）を作る。
-   外枠は日本全体を覆う四角、穴が対応エリア。"""
+   外枠は日本全体を覆う四角、穴が対応エリア。
+
+   入力 data/bnd/*.geojson は「日本の市区町村界データ」（uedayou.net/loa/・
+   国土数値情報の行政区域データ由来 / CC BY 4.0）。8市ぶんを置いてある。
+   市境で隙間が出ないよう少し太らせてから戻し、15m 相当で間引いている。"""
 import json, glob, os
 from shapely.geometry import shape, box, mapping
 from shapely.ops import unary_union
 
-SRC = sorted(glob.glob(os.path.join(os.path.dirname(__file__), '..', 'scratch_bnd', '*.geojson')))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SRC = sorted(glob.glob(os.path.join(ROOT, 'data', 'bnd', '*.geojson')))
 if not SRC:
-    SRC = sorted(glob.glob('/private/tmp/claude-501/-Users-sazanamiseimei-Claude/4f339d54-7a82-4203-b907-013b86d570f6/scratchpad/bnd/*.geojson'))
+    raise SystemExit('data/bnd/ に市境の geojson がありません')
 
 polys = []
 for p in SRC:
@@ -38,6 +43,6 @@ def rnd(o):
     return o
 doc = rnd(doc)
 
-DST = 'docs/data/mask.min.geojson'
+DST = os.path.join(ROOT, 'docs', 'data', 'mask.min.geojson')
 json.dump(doc, open(DST,'w',encoding='utf-8'), ensure_ascii=False, separators=(',',':'))
 print('out', os.path.getsize(DST), 'bytes')
