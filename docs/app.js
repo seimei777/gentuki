@@ -26,6 +26,13 @@
     }).catch(function(){});
 })();
 
+/* index.html が読み込んでいる app.js の版。データの版にも使う。 */
+var APP_VER=(function(){
+  var t=document.querySelector('script[src*="app.js"]');
+  var m=t && t.src.match(/v=(\d+)/);
+  return m ? m[1] : '0';
+})();
+
 var C = { amber:'#f5871f', blue:'#1a73e8', danger:'#ea4335', express:'#b31412',
           grey:'#9aa0a6', route:'#1a73e8', routeCasing:'#1557b0', ped:'#1f8a4c' };
 var VALHALLA = 'https://valhalla1.openstreetmap.de/route';
@@ -504,7 +511,9 @@ function expand(doc){
 
 var styleReady = new Promise(function(res){ map.once('load', res); });
 var ready = Promise.all([
-  fetch('data/genki.min.geojson?v=6').then(function(r){ return r.json(); }).then(expand),
+  /* 版を固定にしていたため、データを作り直してもブラウザが古いものを
+     使い続けていた。app.js と同じ版を付けて、一緒に切り替わるようにする。 */
+  fetch('data/genki.min.geojson?v='+APP_VER).then(function(r){ return r.json(); }).then(expand),
   styleReady
 ]);
 ready.then(function(a){
@@ -540,6 +549,11 @@ function attachApproachBearings(){
     if(f.properties.layer!=='two_stage_likely_line') return;
     var cs=f.geometry.coordinates;
     if(!cs||cs.length<2) return;
+    /* 進入路が短すぎると向きが当てにならない（中央値43mだが最短3m）。
+       方位を付けなければ、経路判定は距離だけで拾う側に倒れる。 */
+    var L=0;
+    for(var i=0;i<cs.length-1;i++) L+=meters(cs[i],cs[i+1]);
+    if(L<15) return;
     ends.push({c:cs[cs.length-1], b:bearingOf(cs[0], cs[cs.length-1])});
   });
   var n=0;
@@ -1039,7 +1053,22 @@ function analyse(r){
       }
     }
   }
+  /* 規制が効いているかは「出発時刻」ではなく「そこに着く頃」で見る。
+     1時間の道のりなら、出発時は空いている通学路が、着く頃には
+     7:30を回っていることがある。逆もある。
+     到達時刻は、その地点までの距離をルート全体の平均速度で割って出す。 */
   var nowT=new Date(), banPts=[], banHits=[];
+  var kmh = (r.km>0 && r.min>0) ? (r.km / (r.min/60)) : 25;
+  function etaAt(pt){
+    if(!pt) return nowT;
+    var best=1e9, along=0, acc=0;
+    for(var i=1;i<dense.length;i++){
+      acc+=meters(dense[i-1],dense[i]);
+      var d=meters(pt, dense[i]);
+      if(d<best){ best=d; along=acc; }
+    }
+    return new Date(nowT.getTime() + (along/1000)/kmh*3600*1000);
+  }
   Object.keys(hits).forEach(function(id){
     var p0=keep[id];
     /* 重なりの長さで見る（10m刻みなので点数×10m）。
@@ -1047,10 +1076,14 @@ function analyse(r){
     var needM = (p0.layer==='pedestrian_only') ? 60 : 150;
     if(hits[id]*STEP_M < needM) return;
     passBan.push(p0);
-    /* 迂回に使う座標。いま効いていない時間規制まで避けると、
+    /* 迂回に使う座標。その地点に着く頃に効いていない規制まで避けると、
        通れる道を無駄に遠回りすることになるので外す。 */
-    if(activeAt(p0, nowT)===false) return;
-    banHits.push({n:hits[id], pts:hitPts[id]||[]});
+    var pts0=hitPts[id]||[];
+    var when=etaAt(pts0[0]);
+    p0.etaMin = Math.round((when-nowT)/60000);      // 何分後に着くか（表示用）
+    p0.etaActive = activeAt(p0, when);
+    if(p0.etaActive===false) return;
+    banHits.push({n:hits[id], pts:pts0});
   });
   /* Valhalla の exclude_locations は上限50。重なりの長い区間から詰め、
      ひとつの区間で枠を使い切らないよう各3点までにする。 */
@@ -1238,20 +1271,24 @@ function renderRoute(r, isAlt){
       '<div class="wrow hot">'+GLYPH.nod+'<div><b>右折できない交差点で右折する経路です</b>（'+
       r.noRight.length+'か所）。指定方向外進行禁止の標識があります。現地で必ず確認してください</div></div>');
   }
-  var nw=new Date();
-  var timed=r.passBan.filter(function(p){ return !p.always && activeAt(p,nw)!==false; });
-  var offNow=r.passBan.filter(function(p){ return !p.always && activeAt(p,nw)===false; });
+  /* 判定は analyse が「そこに着く頃の時刻」で済ませている（etaActive）。
+     出発時刻で見直すと、長い道のりで結論が食い違う。 */
+  var timed=r.passBan.filter(function(p){ return !p.always && p.etaActive!==false; });
+  var offNow=r.passBan.filter(function(p){ return !p.always && p.etaActive===false; });
   var always=r.passBan.filter(function(p){ return p.always; });
   if(timed.length){
     var tn={}; timed.forEach(function(p){ tn[p.title+(p.time?('　'+p.time):'')]=1; });
+    var tEta=timed.map(function(p){ return p.etaMin; }).filter(function(x){ return x!=null; });
     w.insertAdjacentHTML('beforeend',
-      '<div class="wrow hot">'+GLYPH.ban+'<div><b>いま規制中の通行禁止</b>と重なる区間があります（'+
-      escapeHtml(Object.keys(tn).join('、'))+'）。現地の標識で必ず確認してください</div></div>');
+      '<div class="wrow hot">'+GLYPH.ban+'<div><b>通れない区間と重なります</b>（'+
+      escapeHtml(Object.keys(tn).join('、'))+'）。'+
+      (tEta.length? '着く頃（約'+Math.min.apply(null,tEta)+'分後）に規制中です。':'')+
+      '現地の標識で必ず確認してください</div></div>');
   }
   if(offNow.length){
     var on2={}; offNow.forEach(function(p){ on2[p.title+(p.time?('　'+p.time):'')]=1; });
     w.insertAdjacentHTML('beforeend',
-      '<div class="wrow ok">'+GLYPH.ban+'<div><b>いまの時間は通れます</b>（'+
+      '<div class="wrow ok">'+GLYPH.ban+'<div><b>着く頃には通れます</b>（'+
       escapeHtml(Object.keys(on2).join('、'))+'）。出発が遅れて規制時間に入る場合は通れません</div></div>');
   }
   if(always.length){
