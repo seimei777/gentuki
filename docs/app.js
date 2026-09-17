@@ -637,6 +637,11 @@ function addLayers(){
     paint:{'circle-radius':4,'circle-color':C.ped,'circle-stroke-width':1.5,'circle-stroke-color':'#fff'}});
 
   /* --- ルート（casing を先、本線を後） --- */
+  /* 選ばれていない候補。薄いグレーで先に描き、選択中の線を上に重ねる。 */
+  add({id:'route_alt',type:'line',source:'route',filter:['==',['get','k'],'alt'],
+    layout:{'line-cap':'round','line-join':'round'},
+    paint:{'line-color':C.grey,'line-opacity':.75,
+           'line-width':['interpolate',['linear'],['zoom'],10,4,14,7,17,11,19,15]}});
   add({id:'route_casing',type:'line',source:'route',filter:['==',['get','k'],'line'],
     layout:{'line-cap':'round','line-join':'round'},
     paint:{'line-color':C.routeCasing,
@@ -669,6 +674,14 @@ function addLayers(){
     minzoom:10,
     paint:{'circle-radius':['interpolate',['linear'],['zoom'],11,6,17,14],'circle-color':C.amber,
            'circle-stroke-width':3,'circle-stroke-color':'#fff'}});
+  /* 所要時間の吹き出し。Googleマップと同じで、線の脇に出して押せるようにする。 */
+  add({id:'route_label',type:'symbol',source:'route',filter:['==',['get','k'],'rlabel'],
+    layout:{'text-field':['get','t'],'text-font':['Noto Sans Regular'],
+            'text-size':['case',['==',['get','sel'],1],14,12.5],
+            'text-allow-overlap':true,'text-padding':2},
+    paint:{'text-color':['case',['==',['get','sel'],1],'#ffffff','#3c4043'],
+           'text-halo-color':['case',['==',['get','sel'],1],C.route,'#ffffff'],
+           'text-halo-width':['case',['==',['get','sel'],1],3.2,2.6]}});
   add({id:'route_turn',type:'circle',source:'route',filter:['==',['get','k'],'turn'],
     paint:{'circle-radius':['interpolate',['linear'],['zoom'],11,6,17,13],'circle-color':C.amber,
            'circle-stroke-width':3,'circle-stroke-color':'#fff'}});
@@ -715,6 +728,15 @@ function addLayers(){
 var clicksBound=false;
 function bindClicks(){
   if (clicksBound) return; clicksBound=true;
+  ['route_alt','route_label'].forEach(function(id){
+    if(!map.getLayer(id)) return;
+    map.on('click',id,function(e){
+      var i=e.features[0].properties.i;
+      if(i!=null) selectRoute(+i);
+    });
+    map.on('mouseenter',id,function(){ map.getCanvas().style.cursor='pointer'; });
+    map.on('mouseleave',id,function(){ map.getCanvas().style.cursor=''; });
+  });
   ['expw','ban_line','ban_pt','ped_line','ped_line_t','ped_pt','ts_line','ts_no','ts_pt','ts_sign','ow_line','nd_pt','route_turn'].forEach(function(id){
     map.on('click',id,function(e){ openSheet(e.features[0].properties, e.lngLat); });
     map.on('mouseenter',id,function(){ map.getCanvas().style.cursor='pointer'; });
@@ -873,7 +895,10 @@ function setDestination(lngLat, name){
   el.style.cssText='width:16px;height:16px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);'+
     'background:'+C.route+';border:3px solid #06251b;box-shadow:0 0 0 5px rgba(56,211,159,.2)';
   destMarker=new maplibregl.Marker({element:el,anchor:'bottom'}).setLngLat(lngLat).addTo(map);
-  map.easeTo({center:lngLat, zoom:Math.max(map.getZoom(),14)});
+  /* ルートを出すならカメラはルート全体に合わせる側に任せる。
+     ここで目的地へ寄せると、その動きが後から来る fitBounds と競合して
+     ルートの端やラベルが画面の外に出たままになる。 */
+  if(!me) map.easeTo({center:lngLat, zoom:Math.max(map.getZoom(),14)});
   if(me) requestRoute();
   else {
     toast('現在地をオンにするとルートを出します',4200);
@@ -881,7 +906,7 @@ function setDestination(lngLat, name){
   }
 }
 
-function valhalla(from, to, exclude, heading){
+function valhalla(from, to, exclude, heading, alts){
   var origin={lat:from[1],lon:from[0]};
   if (heading!=null){ origin.heading=heading; origin.heading_tolerance=45; }  // 来た道へ戻されるのを防ぐ
   var body={ locations:[origin,{lat:to[1],lon:to[0]}],
@@ -900,10 +925,16 @@ function valhalla(from, to, exclude, heading){
     directions_options:{ language:'ja-JP', units:'kilometers' } };
   if(exclude && exclude.length) body.exclude_locations=
     exclude.slice(0,50).map(function(p){ return {lat:p[1],lon:p[0]}; });   // Valhallaの上限は50
+  if(alts) body.alternates=alts;
   return fetch(VALHALLA+'?json='+encodeURIComponent(JSON.stringify(body)),
       { headers:{ 'X-Client-Id':'seimei777.github.io/gentuki' } })
     .then(function(r){ if(!r.ok) throw new Error('route '+r.status); return r.json(); })
-    .then(function(j){ if(!j.trip) throw new Error('no trip'); return parseTrip(j.trip); });
+    .then(function(j){
+      if(!j.trip) throw new Error('no trip');
+      if(!alts) return parseTrip(j.trip);
+      return [j.trip].concat((j.alternates||[]).map(function(a){ return a.trip; }))
+             .map(parseTrip);
+    });
 }
 
 /* Valhalla polyline6 */
@@ -1050,18 +1081,64 @@ function analyse(r){
   return r;
 }
 
+/* Valhalla の主ルートが最速とは限らない。実測では三宮→西宮北口で
+   主ルート 42分 に対し代替が 36分。候補を3本もらって、速い順に並べる。 */
+var routes=[], routeIdx=0;
 function requestRoute(){
   if(!me || !dest){ return; }
   toast('ルートを計算中…',0);
   showingAlt=false; altData=null; $('#avoidChk').checked=false; $('#avoidNote').textContent='';
-  valhalla(me, dest).then(function(r){
-    routeData=analyse(r);
-    drawRoute(routeData); renderRoute(routeData,false); hideToast();
+  valhalla(me, dest, null, null, 2).then(function(list){
+    if(!Array.isArray(list)) list=[list];
+    routes=list.map(analyse).sort(function(a,b){ return a.min-b.min || a.km-b.km; });
+    routeIdx=0; routeData=routes[0];
+    drawRoutes(); renderRoute(routeData,false); hideToast();
     if(routeData.need.length) prepareAlternative();
     if(routeData.banPts.length) avoidBannedIfNeeded();   // 原付が通れない区間を避け直す
   }).catch(function(e){
     console.error(e); toast('ルートを計算できませんでした。少し時間をおいて試してください',5000);
   });
+}
+/* 候補を全部描き、選んでいるものだけ濃くする。線の脇に所要時間を出す。 */
+function drawRoutes(){
+  if(!routes.length) return;
+  var feats=[];
+  routes.forEach(function(r,i){
+    if(i===routeIdx) return;                       // 選択中は最後に描いて前面へ
+    feats.push({type:'Feature',properties:{k:'alt',i:i},
+      geometry:{type:'LineString',coordinates:r.shape}});
+  });
+  var sel=routes[routeIdx];
+  feats.push({type:'Feature',properties:{k:'line'},
+    geometry:{type:'LineString',coordinates:sel.shape}});
+  sel.need.forEach(function(n){
+    feats.push({type:'Feature',
+      properties:{k:'turn',layer:'two_stage_likely',
+        title:(n.sign?'二段階右折 標識あり':'ここで二段階右折'),
+        detail:'このルートはこの交差点で右折します。原付一種は二段階右折です。',
+        lanes:n.pt.p.lanes, koma:n.koma, city:n.pt.p.city, src:n.pt.p.src},
+      geometry:{type:'Point',coordinates:[n.pt.x,n.pt.y]}});
+  });
+  /* 所要時間の吹き出し。線の真ん中あたりに置く */
+  routes.forEach(function(r,i){
+    var c=r.shape[Math.floor(r.shape.length*(i===routeIdx?0.45:0.62))];
+    feats.push({type:'Feature',
+      properties:{k:'rlabel',i:i,sel:(i===routeIdx?1:0),t:durText(r.min)},
+      geometry:{type:'Point',coordinates:c}});
+  });
+  lastRouteGeo={type:'FeatureCollection',features:feats};
+  map.getSource('route').setData(lastRouteGeo);
+  var b=sel.shape.reduce(function(acc,c){ return acc.extend(c); },
+    new maplibregl.LngLatBounds(sel.shape[0], sel.shape[0]));
+  map.fitBounds(b,{padding:{top:150,bottom:window.innerWidth<760?330:80,left:40,right:40},
+    duration:700, essential:true});
+}
+function selectRoute(i){
+  if(i===routeIdx || !routes[i]) return;
+  routeIdx=i; routeData=routes[i];
+  showingAlt=false; altData=null; $('#avoidChk').checked=false; $('#avoidNote').textContent='';
+  drawRoutes(); renderRoute(routeData,false);
+  if(routeData.need.length) prepareAlternative();
 }
 /* Valhalla の motor_scooter は自動車専用道路は避けるが、
    公安委員会の二輪通行禁止（県警データ側）は知らない。
@@ -1096,8 +1173,8 @@ function avoidBannedIfNeeded(){
     hideToast();
     if (stillBanned < wasBanned && a2.km < before*1.35){   // 35%以上遠回りになるなら
                                                           // 迂回せず警告に留める
-      routeData=a2; showingAlt=false; altData=null;
-      drawRoute(routeData); renderRoute(routeData,false);
+      routeData=a2; routes[routeIdx]=a2; showingAlt=false; altData=null;
+      drawRoutes(); renderRoute(routeData,false);
       if (routeData.need.length) prepareAlternative();
       toast('原付が通れない区間を避けたルートに差し替えました（+'+
             (Math.round((a2.km-before)*10)/10)+'km）', 6000);
@@ -1121,9 +1198,10 @@ function prepareAlternative(){
 }
 $('#avoidChk').addEventListener('change',function(){
   if(this.checked && altData){ showingAlt=true; drawRoute(altData); renderRoute(altData,true); }
-  else { this.checked=false; showingAlt=false; if(routeData){ drawRoute(routeData); renderRoute(routeData,false); } }
+  else { this.checked=false; showingAlt=false; if(routeData){ drawRoutes(); renderRoute(routeData,false); } }
 });
 
+/* 1本だけ描く。ナビ中と「二段階右折を避ける」表示で使う（候補は出さない）。 */
 function drawRoute(r){
   var feats=[{type:'Feature',properties:{k:'line'},
     geometry:{type:'LineString',coordinates:r.shape}}];
@@ -1145,7 +1223,7 @@ function drawRoute(r){
 function renderRoute(r, isAlt){
   $('#rDest').textContent = destName + (isAlt?'（二段階右折を避けるルート）':'');
   $('#rDist').textContent = (Math.round(r.km*10)/10) + ' km';
-  $('#rTime').textContent = 'およそ ' + r.min + ' 分';
+  $('#rTime').textContent = 'およそ ' + durText(r.min);
 
   var w=$('#rWarn'); w.innerHTML='';
   if(r.need.length){
@@ -1649,6 +1727,14 @@ function nearestBan(c, rad){
   return best;
 }
 
+/* 60分を超えたら「1時間3分」にする。63分と言われても長さが掴めない。 */
+function durText(min){
+  min=Math.max(1, Math.round(min));
+  if (min<60) return min+'分';
+  var h=Math.floor(min/60), m=min%60;
+  return m ? (h+'時間'+m+'分') : (h+'時間');
+}
+
 function navDistText(m){
   if (m>=1000) return (Math.round(m/100)/10)+' km';
   if (m>=300)  return (Math.round(m/50)*50)+' m';
@@ -1838,7 +1924,7 @@ function renderNav(step, remainM, toManM){
   var min = Math.max(1, Math.round(remainM/1000 / 25 * 60));   // 実効25km/h
   var eta = new Date(Date.now()+min*60000);
   $('#navEta').textContent = ('0'+eta.getHours()).slice(-2)+':'+('0'+eta.getMinutes()).slice(-2);
-  $('#navMin').textContent = min+'分';
+  $('#navMin').textContent = durText(min);
   $('#navRemain').textContent = (remainM>=1000? (Math.round(remainM/100)/10)+' km' : Math.round(remainM)+' m');
 }
 
