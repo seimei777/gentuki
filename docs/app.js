@@ -1621,9 +1621,11 @@ function resetSheetHeight(el){ el.style.transition=''; el.style.height=''; }
 
 /* ---------------- 詳細シート ---------------- */
 var TAG={ pedestrian_only:['標識',C.ped], two_stage_likely:['義務',C.amber], two_stage_required_sign:['標識',C.amber],
-  two_stage_forbidden:['標識',C.blue], moped_banned:['規制データ',C.danger], expressway:['OSM',C.express] };
+  two_stage_forbidden:['標識',C.blue], moped_banned:['規制データ',C.danger], expressway:['OSM',C.express],
+  /* この2つを入れ忘れていて、タップしても種別のラベルと図が空だった */
+  no_entry_dir:['標識',C.danger], oneway:['標識',C.blue] };
 var GKEY={ pedestrian_only:'ped', two_stage_likely:'est', two_stage_required_sign:'req', two_stage_forbidden:'no',
-  moped_banned:'ban', expressway:'exp' };
+  moped_banned:'ban', expressway:'exp', no_entry_dir:'nod', oneway:'ow' };
 var sheetPt=null;
 function openSheet(p, lngLat){
   if(p.layer==='two_stage_likely_line') p.layer='two_stage_likely';
@@ -2501,12 +2503,29 @@ map.on('rotatestart',function(e){
    layer は two_stage_likely のままなので、koma の有無で見分ける。 */
 function komaPt(p){ return p && p.layer==='two_stage_likely' && p.koma!=null && p.koma!==''; }
 var KIND_KOMA={t:'小回り右折', k:'no', say:'この交差点は小回りです。二段階右折はしません'};
+var KIND_NOD ={t:'この先 右折できません', k:'ban', say:'この先の交差点は右折できません'};
 var KIND={
   two_stage_likely:{t:'二段階右折',k:'',say:'二段階右折の交差点です'},
   two_stage_required_sign:{t:'二段階右折 標識',k:'',say:'二段階右折の標識があります'},
   two_stage_forbidden:{t:'小回り右折',k:'no',say:'ここは二段階右折禁止です'},
   moped_banned:{t:'原付通行禁止',k:'ban',say:'この先、原付は通行できません'}
 };
+/* この地点で接近アラートを出すなら、どう出すか。出さないなら null。
+   ここを一本にしておかないと、地図に足した規制がアラート側に載らないまま残る。
+   実際、指定方向外進行禁止(2,668件)が KIND に無く、一番近くに来るたびに
+   best がそこで埋まって、二段階右折の警告ごと消えていた（手前200mで約3割が無音）。 */
+function alertKind(p){
+  if (komaPt(p)) return KIND_KOMA;
+  if (p.layer==='no_entry_dir'){
+    if (p.right) return null;                     // 右折できる交差点は黙っている
+    /* 方向で決まる規制なので、自分の進行方向が分かるときだけ出す。
+       停止中の GPS 方位は当てにならないので、走っているときに限る。 */
+    var h = (lastSpeed!=null && lastSpeed>2) ? lastHeading : null;
+    if (h==null || p.brg==null || angDiff(h, p.brg)>45) return null;
+    return KIND_NOD;
+  }
+  return KIND[p.layer] || null;
+}
 function checkNear(){
   if(!me || !PTS.length) return;
   var active = routeNeedSet();
@@ -2518,6 +2537,7 @@ function checkNear(){
     if((q.p.layer==='moped_banned'||q.p.layer==='pedestrian_only')
        && activeAt(q.p, nowA)===false) return;
     if(active && !active[q.i] && q.p.layer==='two_stage_likely') return; // ルート中は経路上のものを優先
+    if(!alertKind(q.p)) return;        // 出せないものを一番近くに選ぶと、アラートごと消える
     var d=meters(me,[q.x,q.y]);
     if(d<=ALERT_IN && (!best||d<best.d)) best={q:q,d:d};
   });
@@ -2525,7 +2545,7 @@ function checkNear(){
     var q=PTS[k]; if(!q || meters(me,[q.x,q.y])>ALERT_OUT) delete alerted[k];
   });
   if(!best){ alertBox.hidden=true; return; }
-  var kd = komaPt(best.q.p) ? KIND_KOMA : KIND[best.q.p.layer];
+  var kd = alertKind(best.q.p);
   if(!kd){ alertBox.hidden=true; return; }
   alertBox.dataset.kind=kd.k;
   alertBox.querySelector('.a-kind').textContent=kd.t;
