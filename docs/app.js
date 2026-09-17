@@ -150,6 +150,26 @@ var NIGHT_ROAD={
    右向きに描くので回転もいらない（oneway は上向きの絵で、
    symbol-placement:line がアイコンの横軸を道に合わせるため直交していた）。
    昼夜で同じ絵・同じ大きさになり、色だけテーマで変える。 */
+/* ルート候補の時間ラベルの下地。角丸の板を1枚作り、icon-text-fit で
+   文字の大きさに合わせて伸ばす。stretch を指定しないと角まで潰れる。 */
+function makePill(fill, edge){
+  var s=2, W=48*s, H=30*s, R=15*s;
+  var cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+  var g=cv.getContext('2d');
+  function rr(x,y,w,h,r){
+    g.beginPath();
+    g.moveTo(x+r,y); g.lineTo(x+w-r,y); g.quadraticCurveTo(x+w,y,x+w,y+r);
+    g.lineTo(x+w,y+h-r); g.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+    g.lineTo(x+r,y+h); g.quadraticCurveTo(x,y+h,x,y+h-r);
+    g.lineTo(x,y+r); g.quadraticCurveTo(x,y,x+r,y); g.closePath();
+  }
+  if(edge){ g.fillStyle=edge; rr(0,0,W,H,R); g.fill(); }
+  g.fillStyle=fill; var i=edge?2*s:0;
+  rr(i,i,W-i*2,H-i*2,R-i); g.fill();
+  var d=g.getImageData(0,0,W,H);
+  return {width:W, height:H, data:new Uint8Array(d.data.buffer)};
+}
+
 function makeArrow(fill, edge){
   var s=2, W=22*s, H=8*s;                    // s=2 は Retina 用の解像度
   var cv=document.createElement('canvas'); cv.width=W; cv.height=H;
@@ -689,13 +709,22 @@ function addLayers(){
     paint:{'circle-radius':['interpolate',['linear'],['zoom'],11,6,17,14],'circle-color':C.amber,
            'circle-stroke-width':3,'circle-stroke-color':'#fff'}});
   /* 所要時間の吹き出し。Googleマップと同じで、線の脇に出して押せるようにする。 */
+  try{
+    if(!map.hasImage('gk_pill_sel'))
+      map.addImage('gk_pill_sel', makePill(C.route,'rgba(255,255,255,.95)'),
+        {pixelRatio:2, stretchX:[[18,78]], stretchY:[[18,42]], content:[10,8,86,52]});
+    if(!map.hasImage('gk_pill_alt'))
+      map.addImage('gk_pill_alt', makePill('#ffffff','rgba(60,64,67,.28)'),
+        {pixelRatio:2, stretchX:[[18,78]], stretchY:[[18,42]], content:[10,8,86,52]});
+  }catch(e){}
   add({id:'route_label',type:'symbol',source:'route',filter:['==',['get','k'],'rlabel'],
-    layout:{'text-field':['get','t'],'text-font':['Noto Sans Regular'],
+    layout:{'text-field':['get','t'],'text-font':['Noto Sans Bold'],
             'text-size':['case',['==',['get','sel'],1],14,12.5],
-            'text-line-height':1.15,'text-allow-overlap':true,'text-padding':2},
-    paint:{'text-color':['case',['==',['get','sel'],1],'#ffffff','#3c4043'],
-           'text-halo-color':['case',['==',['get','sel'],1],C.route,'#ffffff'],
-           'text-halo-width':['case',['==',['get','sel'],1],3.2,2.6]}});
+            'text-line-height':1.2,'text-allow-overlap':true,'text-padding':2,
+            'icon-image':['case',['==',['get','sel'],1],'gk_pill_sel','gk_pill_alt'],
+            'icon-text-fit':'both','icon-text-fit-padding':[5,10,5,10],
+            'icon-allow-overlap':true},
+    paint:{'text-color':['case',['==',['get','sel'],1],'#ffffff','#3c4043']}});
   add({id:'route_turn',type:'circle',source:'route',filter:['==',['get','k'],'turn'],
     paint:{'circle-radius':['interpolate',['linear'],['zoom'],11,6,17,13],'circle-color':C.amber,
            'circle-stroke-width':3,'circle-stroke-color':'#fff'}});
@@ -751,8 +780,18 @@ function bindClicks(){
     map.on('mouseenter',id,function(){ map.getCanvas().style.cursor='pointer'; });
     map.on('mouseleave',id,function(){ map.getCanvas().style.cursor=''; });
   });
+  /* ルート候補は最前面にあるので、そこを押したときに下の地点まで
+     一緒に拾ってしまう（時間ラベルを押したら歩行者用道路も開く、など）。
+     候補が指の下にあるなら、地点側の処理はしない。 */
+  function onRouteUI(e){
+    var ids=['route_label','route_alt'].filter(function(i){ return map.getLayer(i); });
+    return ids.length && map.queryRenderedFeatures(e.point,{layers:ids}).length>0;
+  }
   ['expw','ban_line','ban_pt','ped_line','ped_line_t','ped_pt','ts_line','ts_no','ts_pt','ts_sign','ow_line','nd_pt','route_turn'].forEach(function(id){
-    map.on('click',id,function(e){ openSheet(e.features[0].properties, e.lngLat); });
+    map.on('click',id,function(e){
+      if(onRouteUI(e)) return;
+      openSheet(e.features[0].properties, e.lngLat);
+    });
     map.on('mouseenter',id,function(){ map.getCanvas().style.cursor='pointer'; });
     map.on('mouseleave',id,function(){ map.getCanvas().style.cursor=''; });
   });
@@ -1259,6 +1298,20 @@ function drawRoute(r){
   map.fitBounds(b,{padding:{top:150,bottom:window.innerWidth<760?330:80,left:40,right:40},duration:700});
 }
 
+/* 開いた直後は「案内を開始」までしか出さない。
+   道順の一覧まで全画面で出すと地図が隠れ、選び直すこともできない。
+   一覧は引っ張り上げれば出る。 */
+function fitRouteSheet(){
+  var el=$('#route'), btn=$('#navStart');
+  if(!el || el.hidden || !btn) return;
+  el.style.transition='';
+  el.style.height='';                          // いったん自然な高さに戻して測る
+  var top=el.getBoundingClientRect().top;
+  var h=btn.getBoundingClientRect().bottom - top + 18 + (parseInt(getComputedStyle(document.documentElement).getPropertyValue('--vvb'))||0);
+  var max=window.innerHeight*0.88;
+  el.style.height=Math.round(Math.min(h, max))+'px';
+}
+
 function renderRoute(r, isAlt){
   $('#rDest').textContent = destName + (isAlt?'（二段階右折を避けるルート）':'');
   $('#rDist').textContent = (Math.round(r.km*10)/10) + ' km';
@@ -1319,6 +1372,7 @@ function renderRoute(r, isAlt){
   resetSheetHeight($('#route'));
   $('#route').hidden=false;
   $('#sheet').hidden=true;
+  fitRouteSheet();            // 「案内を開始」までの高さで開く
 }
 $('#rClose').addEventListener('click',function(){
   $('#route').hidden=true; routeData=null; routes=[]; routeIdx=0;
