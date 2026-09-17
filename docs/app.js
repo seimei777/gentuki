@@ -787,8 +787,11 @@ function addLayers(){
             'icon-text-fit':'both','icon-text-fit-padding':[5,10,5,10],
             'icon-allow-overlap':true},
     paint:{'text-color':['case',['==',['get','sel'],1],'#ffffff','#3c4043']}});
+  /* ルート上の右折地点。小回りの交差点をオレンジで出すと「ここで二段階」に見える。
+     打ち消される側は青にする（地図の丸と同じ色の使い分け）。 */
   add({id:'route_turn',type:'circle',source:'route',filter:['==',['get','k'],'turn'],
-    paint:{'circle-radius':['interpolate',['linear'],['zoom'],11,6,17,13],'circle-color':C.amber,
+    paint:{'circle-radius':['interpolate',['linear'],['zoom'],11,6,17,13],
+           'circle-color':['case',['==',['get','isKoma'],1],C.blue,C.amber],
            'circle-stroke-width':3,'circle-stroke-color':'#fff'}});
 
   /* --- 一方通行（既定は非表示。本数が多く、背景地図にも矢印が出ている） --- */
@@ -1216,6 +1219,12 @@ function analyse(r){
   r.komaTurn=komaTurn;
 
   r.need=need; r.passBan=passBan; r.noRight=noRight;
+  /* need には「車線と信号の条件は満たすが、小回り標識で打ち消される交差点」も入る。
+     案内そのものは打ち消される側でも出す（「小回りです」と言う必要がある）が、
+     数えるとき・避けるときに混ぜてはいけない。ここで二つに分けておく。 */
+  function isKoma(n){ return n.koma!=null && n.koma!==''; }
+  r.needTwo  = need.filter(function(n){ return !isKoma(n); });
+  r.needKoma = need.filter(isKoma);
   return r;
 }
 
@@ -1256,9 +1265,15 @@ function drawRoutes(){
   sel.need.forEach(function(n){
     feats.push({type:'Feature',
       properties:{k:'turn',layer:'two_stage_likely',
-        title:(n.sign?'二段階右折 標識あり':'ここで二段階右折'),
-        detail:'このルートはこの交差点で右折します。原付一種は二段階右折です。',
-        lanes:n.pt.p.lanes, koma:n.koma, city:n.pt.p.city, src:n.pt.p.src},
+        title:(n.koma!=null&&n.koma!=='' ? 'ここは小回り右折'
+               : n.sign ? '二段階右折 標識あり' : 'ここで二段階右折'),
+        detail:(n.koma!=null&&n.koma!==''
+          ? 'このルートはこの交差点で右折します。近くに小回り標識があるので、二段階右折はしません。'
+          : 'このルートはこの交差点で右折します。原付一種は二段階右折です。'),
+        lanes:n.pt.p.lanes, koma:n.koma,
+        /* 色分け用。koma は距離(m)なので、式で扱える 0/1 を別に持たせる */
+        isKoma:(n.koma!=null&&n.koma!=='')?1:0,
+        city:n.pt.p.city, src:n.pt.p.src},
       geometry:{type:'Point',coordinates:[n.pt.x,n.pt.y]}});
   });
   /* 所要時間の吹き出し。位置は候補ごとに固定する（選ぶたびに動かさない）。
@@ -1356,12 +1371,14 @@ function avoidBannedIfNeeded(){
    候補として並べれば、時間と引き換えに何が得られるかがその場で見える。 */
 function addAvoidCandidate(){
   var base=routes[0];
-  if(!base || !base.need.length) return;                 // 避けるものが無い
-  var ex=base.need.map(function(n){ return [n.pt.x, n.pt.y]; });
+  if(!base || !base.needTwo.length) return;              // 避けるものが無い
+  /* 小回り標識で打ち消される交差点は、そもそも二段階右折をしない。
+     ここを避けると、避ける必要のない交差点のために遠回りする候補になる。 */
+  var ex=base.needTwo.map(function(n){ return [n.pt.x, n.pt.y]; });
   valhalla(me, dest, ex).then(function(r){
     var a=analyse(r);
-    if(a.need.length>=base.need.length) return;          // 減らないなら出さない
-    if(routes.some(function(x){ return x.need.length===0 && x.min<=a.min; })) return;
+    if(a.needTwo.length>=base.needTwo.length) return;    // 減らないなら出さない
+    if(routes.some(function(x){ return x.needTwo.length===0 && x.min<=a.min; })) return;
                                                           // 既に同等以上の候補がある
     a.avoid=true;
     routes.push(a);
@@ -1378,9 +1395,15 @@ function drawRoute(r){
   r.need.forEach(function(n){
     feats.push({type:'Feature',
       properties:{k:'turn',layer:'two_stage_likely',
-        title:(n.sign?'二段階右折 標識あり':'ここで二段階右折'),
-        detail:'このルートはこの交差点で右折します。原付一種は二段階右折です。',
-        lanes:n.pt.p.lanes, koma:n.koma, city:n.pt.p.city, src:n.pt.p.src},
+        title:(n.koma!=null&&n.koma!=='' ? 'ここは小回り右折'
+               : n.sign ? '二段階右折 標識あり' : 'ここで二段階右折'),
+        detail:(n.koma!=null&&n.koma!==''
+          ? 'このルートはこの交差点で右折します。近くに小回り標識があるので、二段階右折はしません。'
+          : 'このルートはこの交差点で右折します。原付一種は二段階右折です。'),
+        lanes:n.pt.p.lanes, koma:n.koma,
+        /* 色分け用。koma は距離(m)なので、式で扱える 0/1 を別に持たせる */
+        isKoma:(n.koma!=null&&n.koma!=='')?1:0,
+        city:n.pt.p.city, src:n.pt.p.src},
       geometry:{type:'Point',coordinates:[n.pt.x,n.pt.y]}});
   });
   lastRouteGeo={type:'FeatureCollection',features:feats};
@@ -1412,12 +1435,19 @@ function renderRoute(r, isAlt){
   $('#rTime').textContent = 'およそ ' + durText(r.min);
 
   var w=$('#rWarn'); w.innerHTML='';
-  if(r.need.length){
+  var nTwo=r.needTwo||[], nKoma=r.needKoma||[];
+  if(nTwo.length){
     w.insertAdjacentHTML('beforeend',
-      '<div class="wrow">'+GLYPH.est+'<div>この先<b> '+r.need.length+' </b>か所で<b> 二段階右折 </b>が必要です</div></div>');
+      '<div class="wrow">'+GLYPH.est+'<div>この先<b> '+nTwo.length+' </b>か所で<b> 二段階右折 </b>が必要です</div></div>');
   } else {
     w.insertAdjacentHTML('beforeend',
       '<div class="wrow ok">'+GLYPH.est+'<div>ルート上に二段階右折が必要な右折はありません</div></div>');
+  }
+  /* 小回り標識で打ち消される右折は、上の数に混ぜず別の行で出す */
+  if(nKoma.length){
+    w.insertAdjacentHTML('beforeend',
+      '<div class="wrow ok">'+GLYPH.no+'<div><b> '+nKoma.length+' </b>か所は<b> 小回り標識 </b>があります。'
+      +'二段階右折はせず、右折レーンから曲がります</div></div>');
   }
   if((r.noRight||[]).length){
     w.insertAdjacentHTML('beforeend',
@@ -1456,11 +1486,13 @@ function renderRoute(r, isAlt){
   r.maneuvers.forEach(function(m,i){
     var li=document.createElement('li');
     var n=needByMi[i];
-    if(n) li.className='two';
+    /* 小回りの交差点をオレンジの「二段階」と同じ色で並べない */
+    if(n) li.className=(n.koma!=null&&n.koma!=='') ? 'koma' : 'two';
     var d=m.km>=1 ? (Math.round(m.km*10)/10+' km') : (Math.round(m.km*1000/10)*10+' m');
     li.innerHTML='<span class="d">'+(m.km?d:'')+'</span><span>'+escapeHtml(cleanSay(m.text||''))+
-      (n?('<br><b>▲ ここは二段階右折'+(n.sign?'（標識あり）':'')+
-          (n.koma!=null&&n.koma!==''?'　※近くに小回り標識あり':'')+'</b>'):'')+'</span>';
+      (n?('<br><b>'+((n.koma!=null&&n.koma!=='')
+            ? '● ここは小回り右折 — 二段階右折はしません'
+            : '▲ ここは二段階右折'+(n.sign?'（標識あり）':''))+'</b>'):'')+'</span>';
     ol.appendChild(li);
   });
   resetSheetHeight($('#route'));
@@ -2010,7 +2042,7 @@ function startNav(){
     if (nav.on && deviceHeading==null && lastHeading==null)
       toast('端末の方角が取れていないため、止まっている間は地図が回りません。走り出すとGPSの進行方向で回ります',7000);
   }, 3000);
-  say('案内を開始します。' + (r.need.length? ('この先、二段階右折が'+r.need.length+'か所あります。') : ''));
+  say('案内を開始します。' + (r.needTwo.length? ('この先、二段階右折が'+r.needTwo.length+'か所あります。') : ''));
 }
 function stopNav(){
   nav.on=false; nav.r=null; nav.follow=true;
@@ -2115,7 +2147,7 @@ function renderNav(step, remainM, toManM){
   /* 残りの二段階右折と、次の次の案内を出す */
   (function(){
     var r=nav.r; if(!r) return;
-    var left=(r.need||[]).filter(function(n){ return n.mi>=step; }).length;
+    var left=(r.needTwo||[]).filter(function(n){ return n.mi>=step; }).length;
     var lb=$('#navLeft');
     if (lb) lb.textContent = left ? ('この先 二段階右折 '+left+'か所') : '二段階右折はもうありません';
     var nx=r.maneuvers[step+1], ne=$('#navNext');
@@ -2465,6 +2497,10 @@ map.on('rotatestart',function(e){
   if(!nav.on && locMode===2 && e && e.originalEvent) setLocMode(1);
 });
 
+/* 「車線と信号では二段階だが小回り標識で打ち消される」地点かどうか。
+   layer は two_stage_likely のままなので、koma の有無で見分ける。 */
+function komaPt(p){ return p && p.layer==='two_stage_likely' && p.koma!=null && p.koma!==''; }
+var KIND_KOMA={t:'小回り右折', k:'no', say:'この交差点は小回りです。二段階右折はしません'};
 var KIND={
   two_stage_likely:{t:'二段階右折',k:'',say:'二段階右折の交差点です'},
   two_stage_required_sign:{t:'二段階右折 標識',k:'',say:'二段階右折の標識があります'},
@@ -2476,7 +2512,8 @@ function checkNear(){
   var active = routeNeedSet();
   var best=null, nowA=new Date();
   nearPts(me[0],me[1]).forEach(function(q){
-    if(!on[q.p.layer]) return;
+    /* 小回りで打ち消される地点は「小回り」チップ側で出し入れしている */
+    if(!on[komaPt(q.p) ? 'two_stage_forbidden' : q.p.layer]) return;
     /* いま効いていない時間規制で警告を出すと、通れる道で毎回鳴ることになる */
     if((q.p.layer==='moped_banned'||q.p.layer==='pedestrian_only')
        && activeAt(q.p, nowA)===false) return;
@@ -2488,7 +2525,8 @@ function checkNear(){
     var q=PTS[k]; if(!q || meters(me,[q.x,q.y])>ALERT_OUT) delete alerted[k];
   });
   if(!best){ alertBox.hidden=true; return; }
-  var kd=KIND[best.q.p.layer]; if(!kd){ alertBox.hidden=true; return; }
+  var kd = komaPt(best.q.p) ? KIND_KOMA : KIND[best.q.p.layer];
+  if(!kd){ alertBox.hidden=true; return; }
   alertBox.dataset.kind=kd.k;
   alertBox.querySelector('.a-kind').textContent=kd.t;
   alertBox.querySelector('.a-dist').textContent='約 '+best.d+' m';

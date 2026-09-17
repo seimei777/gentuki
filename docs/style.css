@@ -114,6 +114,9 @@ button,input{font-family:inherit}
   min-width:52px;font-variant-numeric:tabular-nums;padding-top:1px}
 .r-steps li.two{color:var(--amber);font-weight:700}
 .r-steps li.two .d{color:var(--amber)}
+/* 小回りの右折は二段階と逆の意味なので、オレンジで並べない */
+.r-steps li.koma{color:var(--signblue);font-weight:700}
+.r-steps li.koma .d{color:var(--signblue)}
 
 /* 近接アラート */
 #alert{position:fixed;z-index:9;left:12px;right:12px;bottom:calc(14px + var(--sb));
